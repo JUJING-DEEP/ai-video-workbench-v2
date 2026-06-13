@@ -1,4 +1,11 @@
-# AI Video Workbench / AI 短视频生产工作台
+> 🚧 Project Status: MVP Development (Phase 8 In Progress)
+>
+> Current features:
+> - Storyboard management
+> - Shot management
+> - Asset binding
+> - Asset preview
+> - CI/CD pipeline# AI Video Workbench / AI 短视频生产工作台
 
 AI Video Workbench is a local production cockpit for turning AI-generated storyboard scripts into structured, trackable, and render-ready short-video projects.
 
