@@ -71,3 +71,14 @@ export function bindShotAsset(projectId, shotId, assetType, path) {
     body: JSON.stringify({ asset_type: assetType, path })
   })
 }
+
+export function listProjectAssets(projectId) {
+  return request(`/api/video-workbench/projects/${projectId}/assets`)
+}
+
+export function createProjectAsset(projectId, asset) {
+  return request(`/api/video-workbench/projects/${projectId}/assets`, {
+    method: 'POST',
+    body: JSON.stringify(asset)
+  })
+}

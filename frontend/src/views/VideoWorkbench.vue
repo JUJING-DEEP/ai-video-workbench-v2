@@ -37,6 +37,62 @@
         当前项目：{{ selectedProject.title }} / {{ selectedProject.slug }}
       </p>
 
+      <section v-if="selectedProject" class="video-workbench__asset-library" aria-label="素材库">
+        <div>
+          <p class="video-workbench__eyebrow">Asset Library</p>
+          <h2>素材库</h2>
+        </div>
+
+        <div class="video-workbench__asset-groups">
+          <section
+            v-for="group in assetLibraryGroups"
+            :key="group.type"
+            class="video-workbench__asset-group"
+          >
+            <h3>{{ group.title }}</h3>
+            <p v-if="!group.assets.length" class="video-workbench__muted">暂无素材</p>
+            <article
+              v-for="asset in group.assets"
+              :key="asset.id"
+              class="video-workbench__library-asset"
+            >
+              <div>
+                <strong>{{ asset.name }}</strong>
+                <span>{{ asset.asset_type }}</span>
+              </div>
+              <p>{{ asset.path }}</p>
+              <small>{{ canPreviewAsset(asset) ? '可预览' : '不可预览' }}</small>
+              <div class="video-workbench__asset-actions">
+                <button
+                  type="button"
+                  :data-testid="`bind-library-asset-${asset.id}-image`"
+                  :disabled="!selectedShot || savingAssetType === 'image'"
+                  @click="handleBindLibraryAsset(asset, 'image')"
+                >
+                  Bind as image
+                </button>
+                <button
+                  type="button"
+                  :data-testid="`bind-library-asset-${asset.id}-keyframe`"
+                  :disabled="!selectedShot || savingAssetType === 'keyframe'"
+                  @click="handleBindLibraryAsset(asset, 'keyframe')"
+                >
+                  Bind as keyframe
+                </button>
+                <button
+                  type="button"
+                  :data-testid="`bind-library-asset-${asset.id}-video`"
+                  :disabled="!selectedShot || savingAssetType === 'video'"
+                  @click="handleBindLibraryAsset(asset, 'video')"
+                >
+                  Bind as video
+                </button>
+              </div>
+            </article>
+          </section>
+        </div>
+      </section>
+
       <header class="video-workbench__header">
         <div>
           <p class="video-workbench__eyebrow">Storyboard Import</p>
@@ -128,6 +184,7 @@ import {
   createProject,
   getProjectShots,
   importStoryboard,
+  listProjectAssets,
   listProjects,
   parseStoryboard
 } from '../services/videoWorkbenchApi'
@@ -138,6 +195,7 @@ const selectedProjectId = ref('')
 const storyboardText = ref('')
 const parsed = ref(null)
 const shots = ref([])
+const projectAssets = ref([])
 const selectedShot = ref(null)
 const validationReport = ref({ render_ready: false, issues: [] })
 const error = ref('')
@@ -175,6 +233,24 @@ const parsedJson = computed(() => {
   }
   return JSON.stringify(parsed.value, null, 2)
 })
+
+const assetLibraryGroups = computed(() => [
+  {
+    type: 'image',
+    title: 'Image assets',
+    assets: projectAssets.value.filter((asset) => asset.asset_type === 'image')
+  },
+  {
+    type: 'keyframe',
+    title: 'Keyframe assets',
+    assets: projectAssets.value.filter((asset) => asset.asset_type === 'keyframe')
+  },
+  {
+    type: 'video',
+    title: 'Video assets',
+    assets: projectAssets.value.filter((asset) => asset.asset_type === 'video')
+  }
+])
 
 onMounted(() => {
   refreshProjects()
@@ -225,6 +301,7 @@ async function handleSelectProject() {
   if (!selectedProjectId.value) {
     parsed.value = null
     shots.value = []
+    projectAssets.value = []
     selectedShot.value = null
     validationReport.value = { render_ready: false, issues: [] }
     return
@@ -236,8 +313,10 @@ async function handleSelectProject() {
 async function loadProjectShots(projectId) {
   try {
     const payload = await getProjectShots(projectId)
+    const assetPayload = await listProjectAssets(projectId)
     parsed.value = { project: selectedProject.value, shots: payload.shots || [] }
     shots.value = payload.shots || []
+    projectAssets.value = assetPayload.assets || []
     selectedShot.value = findUpdatedSelectedShot(shots.value)
     syncAssetPaths()
     validationReport.value = buildValidationReport(shots.value)
@@ -326,6 +405,26 @@ async function handleBindAsset(assetType) {
   }
 }
 
+async function handleBindLibraryAsset(asset, assetType) {
+  error.value = ''
+
+  if (!selectedProject.value || !selectedShot.value) {
+    error.value = '请先选择项目和镜头。'
+    return
+  }
+
+  savingAssetType.value = assetType
+
+  try {
+    await bindShotAsset(selectedProject.value.id, selectedShot.value.shot_id, assetType, asset.path)
+    await loadProjectShots(selectedProject.value.id)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '绑定素材失败'
+  } finally {
+    savingAssetType.value = ''
+  }
+}
+
 function findUpdatedSelectedShot(currentShots) {
   if (!selectedShot.value) {
     return currentShots[0] || null
@@ -347,6 +446,10 @@ function syncAssetPaths() {
 
 function assetStatus(assetType) {
   return assetPaths.value[assetType] ? '已绑定' : '未绑定'
+}
+
+function canPreviewAsset(asset) {
+  return ['image', 'keyframe', 'video'].includes(asset.asset_type)
 }
 
 function buildValidationReport(currentShots) {
@@ -457,6 +560,67 @@ function buildValidationReport(currentShots) {
   margin: 0 0 18px;
   color: #475467;
   font-weight: 700;
+}
+
+.video-workbench__asset-library {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.video-workbench__asset-library h2,
+.video-workbench__asset-library h3 {
+  margin: 0;
+}
+
+.video-workbench__asset-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.video-workbench__asset-group {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.video-workbench__library-asset {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.video-workbench__library-asset div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.video-workbench__library-asset p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #475467;
+  font-size: 13px;
+}
+
+.video-workbench__library-asset span,
+.video-workbench__library-asset small,
+.video-workbench__muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.video-workbench__asset-actions {
+  display: grid;
+  gap: 6px;
 }
 
 .video-workbench__header {

@@ -35,6 +35,12 @@ class BindAssetRequest(BaseModel):
     path: str
 
 
+class CreateAssetRequest(BaseModel):
+    asset_type: str
+    name: str
+    path: str
+
+
 def get_repository() -> VideoWorkbenchRepository:
     db_path = Path(os.getenv("VIDEO_WORKBENCH_DB_PATH", "video_workbench.db"))
     projects_root = Path(os.getenv("VIDEO_WORKBENCH_PROJECTS_ROOT", "video_projects"))
@@ -155,3 +161,44 @@ async def bind_shot_asset(
         raise HTTPException(status_code=404, detail=f"Shot not found: {project_id}/{shot_id}") from exc
 
     return jsonable_encoder({"shot": asdict(shot)})
+
+
+@router.get("/projects/{project_id}/assets")
+async def list_project_assets(
+    project_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        assets = repository.list_assets(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder({"assets": assets})
+
+
+@router.post("/projects/{project_id}/assets")
+async def create_project_asset(
+    project_id: int,
+    data: CreateAssetRequest,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    asset_type = data.asset_type.strip()
+    name = data.name.strip()
+    path = data.path.strip()
+
+    if asset_type not in {"image", "keyframe", "video"}:
+        raise HTTPException(
+            status_code=400,
+            detail="asset_type must be one of: image, keyframe, video.",
+        )
+    if not name:
+        raise HTTPException(status_code=400, detail="Asset name is required.")
+    if not path:
+        raise HTTPException(status_code=400, detail="Asset path is required.")
+
+    try:
+        asset = repository.create_asset(project_id, asset_type, name, path)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder({"asset": asset})
