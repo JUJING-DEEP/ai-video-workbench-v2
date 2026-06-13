@@ -66,6 +66,19 @@ class VideoWorkbenchRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS video_assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL,
+                    asset_type TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(project_id) REFERENCES video_projects(id) ON DELETE CASCADE
+                )
+                """
+            )
 
     def create_project(
         self,
@@ -161,6 +174,40 @@ class VideoWorkbenchRepository:
 
             if cursor.rowcount == 0:
                 raise KeyError(f"Shot not found: {project_id}/{shot_id}")
+
+    def create_asset(self, project_id: int, asset_type: str, name: str, path: str):
+        self.get_project(project_id)
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO video_assets (project_id, asset_type, name, path)
+                VALUES (?, ?, ?, ?)
+                """,
+                (project_id, asset_type, name, path),
+            )
+            asset_id = cursor.lastrowid
+            row = conn.execute(
+                "SELECT * FROM video_assets WHERE id = ?",
+                (asset_id,),
+            ).fetchone()
+
+        return dict(row)
+
+    def list_assets(self, project_id: int):
+        self.get_project(project_id)
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM video_assets
+                WHERE project_id = ?
+                ORDER BY id
+                """,
+                (project_id,),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
 
     def _unique_slug(self, title: str) -> str:
         base_slug = _slugify(title)

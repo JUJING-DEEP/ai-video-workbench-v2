@@ -177,3 +177,91 @@ def test_bind_shot_asset_requires_path(client):
 
     assert response.status_code == 400
     assert "path" in response.json()["detail"].lower()
+
+
+def test_create_project_asset_success(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Asset Library"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "image", "name": "Shot 001", "path": "/renders/shot-001.png"},
+    )
+
+    assert response.status_code == 200
+    asset = response.json()["asset"]
+    assert asset["id"] == 1
+    assert asset["project_id"] == project_id
+    assert asset["asset_type"] == "image"
+    assert asset["name"] == "Shot 001"
+    assert asset["path"] == "/renders/shot-001.png"
+    assert asset["created_at"]
+
+
+def test_list_project_assets_success(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Asset List"},
+    ).json()["project"]["id"]
+    client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "image", "name": "Shot 001", "path": "/renders/shot-001.png"},
+    )
+    client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "video", "name": "Hook Video", "path": "/renders/hook.mp4"},
+    )
+
+    response = client.get(f"/api/video-workbench/projects/{project_id}/assets")
+
+    assert response.status_code == 200
+    assets = response.json()["assets"]
+    assert [asset["asset_type"] for asset in assets] == ["image", "video"]
+    assert [asset["name"] for asset in assets] == ["Shot 001", "Hook Video"]
+
+
+def test_create_project_asset_rejects_unknown_asset_type(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Bad Library Asset Type"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "audio", "name": "Voice", "path": "/renders/voice.mp3"},
+    )
+
+    assert response.status_code == 400
+    assert "asset_type" in response.json()["detail"]
+
+
+def test_create_project_asset_requires_name(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Missing Asset Name"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "image", "name": "   ", "path": "/renders/shot-001.png"},
+    )
+
+    assert response.status_code == 400
+    assert "name" in response.json()["detail"].lower()
+
+
+def test_create_project_asset_requires_path(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Missing Asset Path"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "image", "name": "Shot 001", "path": "   "},
+    )
+
+    assert response.status_code == 400
+    assert "path" in response.json()["detail"].lower()

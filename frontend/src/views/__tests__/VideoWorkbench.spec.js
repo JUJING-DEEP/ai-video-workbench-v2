@@ -6,12 +6,14 @@ import VideoWorkbench from '../VideoWorkbench.vue'
 import {
   bindShotAsset,
   getProjectShots,
+  listProjectAssets,
   listProjects
 } from '../../services/videoWorkbenchApi'
 
 vi.mock('../../services/videoWorkbenchApi', () => ({
   bindShotAsset: vi.fn().mockResolvedValue({ shot: {} }),
   createProject: vi.fn(),
+  createProjectAsset: vi.fn(),
   getProjectShots: vi.fn().mockResolvedValue({
     shots: [
       {
@@ -32,6 +34,34 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   importStoryboard: vi.fn(),
   listProjects: vi.fn().mockResolvedValue({
     projects: [{ id: 7, title: 'Asset Project', slug: 'asset-project' }]
+  }),
+  listProjectAssets: vi.fn().mockResolvedValue({
+    assets: [
+      {
+        id: 11,
+        project_id: 7,
+        asset_type: 'image',
+        name: 'Shot 001 Image',
+        path: '/library/shot-001.png',
+        created_at: '2026-06-13 12:00:00'
+      },
+      {
+        id: 12,
+        project_id: 7,
+        asset_type: 'keyframe',
+        name: 'Hook Keyframe',
+        path: '/library/hook-keyframe.png',
+        created_at: '2026-06-13 12:01:00'
+      },
+      {
+        id: 13,
+        project_id: 7,
+        asset_type: 'video',
+        name: 'Hook Video',
+        path: '/library/hook.mp4',
+        created_at: '2026-06-13 12:02:00'
+      }
+    ]
   }),
   parseStoryboard: vi.fn()
 }))
@@ -115,5 +145,47 @@ describe('VideoWorkbench', () => {
     expect(URL.createObjectURL).toHaveBeenCalledWith(file)
     expect(wrapper.find('#asset-image').element.value).toBe('shot-001.png')
     expect(wrapper.find('img[alt="图片预览"]').attributes('src')).toBe('blob:preview-url')
+  })
+
+  it('shows project assets in the asset library', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(listProjectAssets).toHaveBeenCalledWith(7)
+    expect(wrapper.text()).toContain('Image assets')
+    expect(wrapper.text()).toContain('Shot 001 Image')
+    expect(wrapper.text()).toContain('/library/shot-001.png')
+    expect(wrapper.text()).toContain('Keyframe assets')
+    expect(wrapper.text()).toContain('Hook Keyframe')
+    expect(wrapper.text()).toContain('Video assets')
+    expect(wrapper.text()).toContain('Hook Video')
+  })
+
+  it('binds an asset library item to the selected shot', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="bind-library-asset-11-image"]').trigger('click')
+    await flushPromises()
+
+    expect(bindShotAsset).toHaveBeenCalledWith(7, 1, 'image', '/library/shot-001.png')
+  })
+
+  it('disables asset library binding when no shot is selected', async () => {
+    getProjectShots.mockResolvedValueOnce({ shots: [] })
+
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="bind-library-asset-11-image"]').attributes('disabled')).toBeDefined()
   })
 })
