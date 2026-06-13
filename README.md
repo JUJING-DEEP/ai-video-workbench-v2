@@ -1,0 +1,404 @@
+# AI Video Workbench / AI 短视频生产工作台
+
+AI Video Workbench is a local production cockpit for turning AI-generated storyboard scripts into structured, trackable, and render-ready short-video projects.
+
+AI 短视频生产工作台是一个本地化生产驾驶舱，用于把 AI 生成的分镜脚本文本转化为结构化、可追踪、可校验、可进入渲染流程的短视频项目。
+
+---
+
+## 1. Project Overview / 项目简介
+
+This project helps scale an AI short-video workflow that typically involves:
+
+1. Generating scripts and storyboards in Google AI Studio.
+2. Creating narration audio with ElevenLabs or another voice tool.
+3. Generating images with Nano banana.
+4. Generating I2V clips with Jimeng.
+5. Aligning images, videos, audio, and subtitles into a final video.
+
+本项目用于规模化一个典型 AI 短视频流程：
+
+1. 在 Google AI Studio 生成脚本和分镜。
+2. 使用 ElevenLabs 或其他语音工具生成旁白音频。
+3. 使用 Nano banana 生成图片。
+4. 使用即梦生成图生视频片段。
+5. 将图片、视频、音频和字幕严格对齐，组合成最终成片。
+
+The Phase 1 MVP focuses on the local workbench foundation: parsing fixed-format storyboard text, managing shot metadata, exporting prompt packages, validating timelines, generating subtitles, and preparing render plans.
+
+Phase 1 MVP 聚焦本地工作台基础能力：解析固定格式分镜文本、管理镜头元数据、导出提示词任务包、校验时间线、生成字幕，并准备渲染计划。
+
+---
+
+## 2. Core Features / 核心功能
+
+- **Storyboard parsing**: Parse Google AI Studio planning metadata, batch text, and shot-level prompts.
+- **Shot classification**: Identify Mode A overlays, Mode B new compositions, and key-node I2V shots.
+- **Prompt package export**: Generate task files for Nano banana images, Nano banana keyframes, and Jimeng I2V prompts.
+- **Asset tracking foundation**: Store expected image, keyframe, and video paths per shot.
+- **Timeline validation**: Detect time gaps, overlaps, duplicate shot IDs, invalid durations, missing assets, and audio timeline mismatches.
+- **Subtitle generation**: Generate Chinese SRT and bilingual ASS subtitles.
+- **Render plan generation**: Build a structured render plan for image-to-video and video normalization steps.
+- **Workbench UI**: Provide a local `/video-workbench` page for importing storyboard text, viewing shot cards, and checking validation status.
+
+- **分镜解析**：解析 Google AI Studio 的规划信息、批次文本和镜头级提示词。
+- **镜头分类**：识别模式 A 垫图叠加、模式 B 全新构图，以及关键节点 I2V 镜头。
+- **提示词包导出**：生成 Nano banana 图片、Nano banana 关键帧、即梦 I2V 的任务文件。
+- **素材追踪基础**：为每个镜头记录预期图片、关键帧和视频路径。
+- **时间线校验**：检测时间断档、重叠、重复镜头编号、非法时长、缺失素材和音频时间轴不匹配。
+- **字幕生成**：生成中文字幕 SRT 和中英双语 ASS 字幕。
+- **渲染计划生成**：为图片转视频和视频时长标准化生成结构化渲染计划。
+- **工作台 UI**：提供本地 `/video-workbench` 页面，用于导入分镜文本、查看镜头卡片和校验状态。
+
+---
+
+## 3. Technical Architecture / 技术架构图
+
+```mermaid
+flowchart LR
+  subgraph Inputs["Inputs / 输入"]
+    AIStudio["Google AI Studio Storyboard\nGoogle AI Studio 分镜文本"]
+    Audio["Narration Audio\n旁白音频"]
+    Assets["Generated Assets\n生成素材"]
+  end
+
+  subgraph Frontend["Vue Workbench / Vue 工作台"]
+    ImportUI["Storyboard Import\n分镜导入"]
+    TimelineUI["Shot Timeline\n镜头时间线"]
+    ValidationUI["Validation Panel\n校验面板"]
+  end
+
+  subgraph Backend["FastAPI Backend / FastAPI 后端"]
+    Parser["Storyboard Parser\n分镜解析器"]
+    Repo["SQLite Repository\nSQLite 数据层"]
+    Storage["Project Storage\n项目文件管理"]
+    Validator["Timeline Validator\n时间线校验器"]
+    Subtitles["Subtitle Generator\n字幕生成器"]
+    RenderPlan["Render Plan Builder\n渲染计划生成器"]
+  end
+
+  subgraph Outputs["Outputs / 输出"]
+    Prompts["Prompt Packages\n提示词任务包"]
+    Reports["Validation Reports\n校验报告"]
+    SubtitleFiles["SRT / ASS Subtitles\n字幕文件"]
+    Plan["Render Plan\n渲染计划"]
+  end
+
+  AIStudio --> ImportUI
+  ImportUI --> Parser
+  Parser --> Repo
+  Repo --> TimelineUI
+  Repo --> Validator
+  Validator --> ValidationUI
+  Repo --> Storage
+  Storage --> Prompts
+  Repo --> Subtitles
+  Subtitles --> SubtitleFiles
+  Repo --> RenderPlan
+  Audio --> RenderPlan
+  Assets --> RenderPlan
+  RenderPlan --> Plan
+  Validator --> Reports
+```
+
+---
+
+## 4. Local Development / 本地启动方法
+
+### Prerequisites / 环境要求
+
+- Python 3.8+
+- Node.js 18+
+- npm
+- FFmpeg and ffprobe, required for later media probing/rendering workflows
+
+- Python 3.8+
+- Node.js 18+
+- npm
+- FFmpeg 和 ffprobe，后续媒体探测与渲染流程会用到
+
+### Backend / 后端
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+Health check / 健康检查：
+
+```bash
+curl http://127.0.0.1:8000/api/video-workbench/health
+```
+
+Expected response / 预期返回：
+
+```json
+{"status":"ok"}
+```
+
+### Frontend / 前端
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 127.0.0.1
+```
+
+Open / 打开：
+
+```text
+http://127.0.0.1:5173/video-workbench
+```
+
+### Tests / 测试
+
+```bash
+cd backend
+python -m pytest tests/video_workbench -v
+```
+
+```bash
+cd frontend
+npm run test
+npm run build
+```
+
+---
+
+## 5. API Reference / API 说明
+
+### `GET /api/video-workbench/health`
+
+Checks whether the video workbench API is available.
+
+检查短视频工作台 API 是否可用。
+
+Response / 返回：
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### `POST /api/video-workbench/parse`
+
+Parses fixed-format Google AI Studio storyboard text into planning metadata and shot records.
+
+将固定格式的 Google AI Studio 分镜文本解析为项目规划信息和镜头记录。
+
+Request / 请求：
+
+```json
+{
+  "text": "第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）\n台词：你好 / Hello\n--- 提示词 ---\nScene: Test"
+}
+```
+
+Response / 返回：
+
+```json
+{
+  "planning": {
+    "audio_duration_seconds": null,
+    "estimated_regular_images": null,
+    "estimated_key_nodes": null,
+    "estimated_batches": null,
+    "batch_size": null
+  },
+  "shots": [
+    {
+      "shot_id": 1,
+      "start_seconds": 0.0,
+      "end_seconds": 2.0,
+      "duration_seconds": 2.0,
+      "kind": "image",
+      "mode": "B",
+      "dialogue_zh": "你好",
+      "dialogue_en": "Hello",
+      "image_prompt": "Scene: Test",
+      "i2v_prompt": "",
+      "status": "parsed"
+    }
+  ]
+}
+```
+
+Invalid storyboard-like text returns `400 Bad Request` with a human-readable detail message.
+
+格式异常的分镜文本会返回 `400 Bad Request`，并包含可读的错误说明。
+
+---
+
+## 6. Project Structure / 项目目录结构
+
+```text
+.
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   └── video_workbench/
+│   │       ├── api.py
+│   │       ├── media_probe.py
+│   │       ├── models.py
+│   │       ├── parser.py
+│   │       ├── render_plan.py
+│   │       ├── repository.py
+│   │       ├── storage.py
+│   │       ├── subtitles.py
+│   │       ├── timecode.py
+│   │       └── validator.py
+│   ├── tests/
+│   │   └── video_workbench/
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   └── video-workbench/
+│   │   │       ├── ShotTimeline.vue
+│   │   │       └── ValidationPanel.vue
+│   │   ├── services/
+│   │   │   └── videoWorkbenchApi.js
+│   │   ├── views/
+│   │   │   └── VideoWorkbench.vue
+│   │   └── router/
+│   │       └── index.js
+│   ├── package.json
+│   └── vite.config.js
+├── docs/
+│   └── superpowers/
+│       ├── plans/
+│       └── specs/
+├── SPEC.md
+└── README.md
+```
+
+Planned generated project storage / 计划中的生成项目存储结构：
+
+```text
+video_projects/
+  sleep-video-001/
+    project.json
+    shots.json
+    audio/
+    prompts/
+      nano_images/
+      nano_keyframes/
+      jimeng_i2v/
+    assets/
+      images/
+      keyframes/
+      videos/
+    subtitles/
+    renders/
+    reports/
+```
+
+---
+
+## 7. MVP Phase 1 Implemented / MVP Phase 1 已实现功能
+
+- Backend test harness with pytest.
+- Domain models for projects, shots, shot modes, shot kinds, and statuses.
+- Timecode parsing and formatting with boundary validation.
+- Storyboard parser for project planning metadata, Mode A, Mode B, and key-node I2V blocks.
+- SQLite repository for video projects and shots.
+- Safe local project storage and prompt package export.
+- Timeline validator for gaps, overlaps, missing assets, invalid durations, duplicate shot IDs, and audio mismatch.
+- SRT and ASS subtitle generation with ASS escaping and deterministic ordering.
+- Render-plan builder with missing asset and duplicate ID protection.
+- FFprobe duration wrapper with path-aware errors.
+- FastAPI routes for health and storyboard parsing.
+- Vue workbench route at `/video-workbench`.
+- Shot timeline and validation panel components.
+- Automated backend and frontend tests.
+
+- 后端 pytest 测试基础设施。
+- 项目、镜头、镜头模式、镜头类型和状态领域模型。
+- 带边界校验的时间码解析与格式化。
+- 支持项目规划信息、模式 A、模式 B、关键节点 I2V 文本块的分镜解析器。
+- 用于视频项目和镜头数据的 SQLite repository。
+- 安全的本地项目存储和提示词包导出。
+- 时间线校验器，可检测断档、重叠、缺失素材、非法时长、重复镜头编号和音频不匹配。
+- SRT 和 ASS 字幕生成，包含 ASS 转义和稳定排序。
+- 渲染计划生成器，包含缺失素材和重复 ID 防护。
+- 带路径上下文错误信息的 FFprobe 时长探测封装。
+- FastAPI 健康检查和分镜解析接口。
+- Vue 工作台页面 `/video-workbench`。
+- 镜头时间线和校验面板组件。
+- 后端与前端自动化测试。
+
+Verification completed / 已完成验证：
+
+```bash
+cd backend && python -m pytest tests/video_workbench -v
+cd frontend && npm run test
+cd frontend && npm run build
+```
+
+---
+
+## 8. Phase 2 Roadmap / Phase 2 路线图
+
+### AI Studio Agent
+
+- Open the current Google AI Studio conversation.
+- Detect completed storyboard batches.
+- Capture and append new batch text.
+- Send continuation commands such as `继续` or `生成分镜`.
+- Pause for malformed output, duplicate ranges, missing ranges, login issues, or account limits.
+
+- 打开当前 Google AI Studio 对话。
+- 检测已完成的分镜批次。
+- 抓取并追加新批次文本。
+- 发送 `继续` 或 `生成分镜` 等续写指令。
+- 遇到格式异常、重复范围、缺失范围、登录问题或账号限制时暂停。
+
+### Nano banana Agent
+
+- Execute Mode B image-generation tasks.
+- Execute Mode A base-image overlay/edit tasks.
+- Generate keyframes for key-node video shots.
+- Download and bind generated assets to shot IDs.
+- Pause for login, captcha, quota, failed generation, or manual review.
+
+- 执行模式 B 图片生成任务。
+- 执行模式 A 底图叠加/编辑任务。
+- 为关键节点视频镜头生成关键帧。
+- 下载生成素材并绑定到镜头 ID。
+- 遇到登录、验证码、额度、生成失败或人工审核时暂停。
+
+### Jimeng Agent
+
+- Submit keyframe + I2V prompt tasks.
+- Download generated videos.
+- Record actual durations.
+- Bind videos to shot IDs.
+- Surface failed tasks back to the workbench.
+
+- 提交关键帧 + I2V 提示词任务。
+- 下载生成视频。
+- 记录实际时长。
+- 将视频绑定到镜头 ID。
+- 把失败任务回写到工作台。
+
+### Rendering Pipeline
+
+- Convert still images into exact-duration video segments.
+- Normalize video clips through trimming, holding final frame, or controlled speed adjustment.
+- Burn ASS subtitles into a final subtitle version.
+- Export both clean and subtitle-burned MP4 outputs.
+
+- 将静态图片转换为精确目标时长的视频片段。
+- 通过裁切、保持最后一帧或受控变速标准化视频片段。
+- 将 ASS 字幕烧录到最终字幕版视频。
+- 同时导出纯净版和字幕烧录版 MP4。
+
+---
+
+## 9. License / 许可证
+
+No license has been selected yet.
+
+当前尚未选择许可证。
