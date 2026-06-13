@@ -69,13 +69,34 @@
           <section class="video-workbench__asset-form" aria-label="素材路径绑定">
             <h4>素材路径</h4>
             <div v-for="asset in assetFields" :key="asset.type" class="video-workbench__asset-row">
-              <label :for="`asset-${asset.type}`">{{ asset.label }}</label>
+              <label :for="`asset-${asset.type}`">
+                <span>{{ asset.label }} {{ assetStatus(asset.type) }}</span>
+              </label>
               <input
                 :id="`asset-${asset.type}`"
                 v-model="assetPaths[asset.type]"
                 type="text"
                 :placeholder="asset.placeholder"
               />
+              <input
+                :id="`asset-${asset.type}-file`"
+                type="file"
+                :accept="asset.accept"
+                @change="handleSelectAssetFile(asset.type, $event)"
+              />
+              <div v-if="assetPreviews[asset.type]" class="video-workbench__asset-preview">
+                <img
+                  v-if="assetPreviews[asset.type].kind === 'image'"
+                  :src="assetPreviews[asset.type].url"
+                  :alt="`${asset.label}预览`"
+                />
+                <video
+                  v-else
+                  :src="assetPreviews[asset.type].url"
+                  controls
+                  :aria-label="`${asset.label}预览`"
+                />
+              </div>
               <button
                 type="button"
                 :disabled="!selectedProject || savingAssetType === asset.type"
@@ -121,14 +142,20 @@ const selectedShot = ref(null)
 const validationReport = ref({ render_ready: false, issues: [] })
 const error = ref('')
 const assetPaths = ref({ image: '', keyframe: '', video: '' })
+const assetPreviews = ref({ image: null, keyframe: null, video: null })
 const isCreatingProject = ref(false)
 const isParsing = ref(false)
 const savingAssetType = ref('')
 
 const assetFields = [
-  { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png' },
-  { type: 'keyframe', label: '关键帧', placeholder: '/path/to/shot-001-keyframe.png' },
-  { type: 'video', label: '视频', placeholder: '/path/to/shot-001.mp4' }
+  { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png', accept: 'image/*' },
+  {
+    type: 'keyframe',
+    label: '关键帧',
+    placeholder: '/path/to/shot-001-keyframe.png',
+    accept: 'image/*'
+  },
+  { type: 'video', label: '视频', placeholder: '/path/to/shot-001.mp4', accept: 'video/*' }
 ]
 
 const selectedProject = computed(() => {
@@ -255,6 +282,24 @@ function handleSelectShot(shot) {
   syncAssetPaths()
 }
 
+function handleSelectAssetFile(assetType, event) {
+  const file = event.target.files?.[0]
+  if (!file) {
+    return
+  }
+
+  const previousPreview = assetPreviews.value[assetType]
+  if (previousPreview) {
+    URL.revokeObjectURL(previousPreview.url)
+  }
+
+  assetPaths.value[assetType] = file.name
+  assetPreviews.value[assetType] = {
+    url: URL.createObjectURL(file),
+    kind: file.type.startsWith('video/') ? 'video' : 'image'
+  }
+}
+
 async function handleBindAsset(assetType) {
   error.value = ''
 
@@ -298,6 +343,10 @@ function syncAssetPaths() {
     keyframe: selectedShot.value?.keyframe_path || '',
     video: selectedShot.value?.video_path || ''
   }
+}
+
+function assetStatus(assetType) {
+  return assetPaths.value[assetType] ? '已绑定' : '未绑定'
 }
 
 function buildValidationReport(currentShots) {
@@ -513,6 +562,21 @@ button {
   color: #111827;
   padding: 0 10px;
   font: inherit;
+}
+
+.video-workbench__asset-preview {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.video-workbench__asset-preview img,
+.video-workbench__asset-preview video {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
 }
 
 .video-workbench__preview {
