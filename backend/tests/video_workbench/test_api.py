@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,23 @@ STORYBOARD_TEXT = (
     "台词：你好 / Hello\n"
     "--- 提示词 ---\n"
     "Scene: Test"
+)
+
+MULTI_SHOT_STORYBOARD_TEXT = (
+    "第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）\n"
+    "台词：第一镜 / First shot\n"
+    "--- 提示词 ---\n"
+    "Scene: First\n"
+    "————————————————————————\n"
+    "第 2 张图片 ▏时间：0:02 — 0:05 ▏模式：B（全新构图）\n"
+    "台词：第二镜 / Second shot\n"
+    "--- 提示词 ---\n"
+    "Scene: Second\n"
+    "————————————————————————\n"
+    "第 3 张图片 ▏时间：0:05 — 0:09 ▏模式：B（全新构图）\n"
+    "台词：第三镜 / Third shot\n"
+    "--- 提示词 ---\n"
+    "Scene: Third"
 )
 
 
@@ -761,6 +779,25 @@ def _bind_keyframe(client, project_id, shot_id=1, path="/renders/keyframe.png"):
     )
 
 
+def _create_project_with_multi_shots(client, title="Render Project"):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": title},
+    ).json()["project"]["id"]
+    client.post(
+        f"/api/video-workbench/projects/{project_id}/storyboard",
+        json={"text": MULTI_SHOT_STORYBOARD_TEXT},
+    )
+    return project_id
+
+
+def _bind_video(client, project_id, shot_id, path):
+    return client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/{shot_id}/assets",
+        json={"asset_type": "video", "path": path},
+    )
+
+
 def test_jimeng_settings_save(client):
     response = _save_jimeng_settings(client)
 
@@ -891,3 +928,99 @@ def test_provider_error(client):
 
     assert response.status_code == 502
     assert "provider" in response.json()["detail"].lower()
+
+
+def test_generate_render_plan(client):
+    project_id = _create_project_with_multi_shots(client)
+    _bind_video(client, project_id, 1, "/renders/shot-001.mp4")
+    _bind_video(client, project_id, 2, "/renders/shot-002.mp4")
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_id"] == project_id
+    assert payload["items"] == [
+        {
+            "shot_id": 1,
+            "order": 1,
+            "video_path": "/renders/shot-001.mp4",
+            "duration_seconds": 2.0,
+        },
+        {
+            "shot_id": 2,
+            "order": 2,
+            "video_path": "/renders/shot-002.mp4",
+            "duration_seconds": 3.0,
+        },
+    ]
+
+
+def test_generate_render_plan_empty_project(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Empty Render Project"},
+    ).json()["project"]["id"]
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_generate_render_plan_only_includes_video_shots(client):
+    project_id = _create_project_with_multi_shots(client, "Only Video Shots")
+    _bind_video(client, project_id, 2, "/renders/shot-002.mp4")
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [item["shot_id"] for item in items] == [2]
+
+
+def test_get_render_plan(client):
+    project_id = _create_project_with_multi_shots(client, "Get Render Plan")
+    _bind_video(client, project_id, 1, "/renders/shot-001.mp4")
+    created = client.post(f"/api/video-workbench/projects/{project_id}/render-plan").json()
+
+    response = client.get(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == created["id"]
+    assert response.json()["items"] == created["items"]
+
+
+def test_export_render_plan(client):
+    project_id = _create_project_with_multi_shots(client, "Export Render Plan")
+    _bind_video(client, project_id, 1, "/renders/shot-001.mp4")
+    client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan/export")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["path"] == f"data/exports/{project_id}/render-plan.json"
+    assert payload["render_plan"]["project_id"] == project_id
+    assert payload["render_plan"]["shots"] == [
+        {
+            "shot_id": 1,
+            "video_path": "/renders/shot-001.mp4",
+            "duration_seconds": 2.0,
+        }
+    ]
+
+
+def test_export_file_created(client):
+    project_id = _create_project_with_multi_shots(client, "Export File")
+    _bind_video(client, project_id, 1, "/renders/shot-001.mp4")
+    client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan/export")
+
+    assert response.status_code == 200
+    path = Path(response.json()["path"])
+    assert path.exists()
+    exported = json.loads(path.read_text())
+    assert exported["project_id"] == project_id
+    assert exported["shots"][0]["video_path"] == "/renders/shot-001.mp4"

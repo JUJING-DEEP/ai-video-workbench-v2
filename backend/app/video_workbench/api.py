@@ -426,6 +426,45 @@ async def generate_shot_video(
     )
 
 
+@router.post("/projects/{project_id}/render-plan")
+async def create_project_render_plan(
+    project_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        render_plan = repository.create_render_plan(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder(render_plan)
+
+
+@router.get("/projects/{project_id}/render-plan")
+async def get_project_render_plan(
+    project_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        render_plan = repository.get_render_plan(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder(render_plan)
+
+
+@router.post("/projects/{project_id}/render-plan/export")
+async def export_project_render_plan(
+    project_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        exported = repository.export_render_plan(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder(exported)
+
+
 @router.post("/projects/{project_id}/shots/{shot_id}/generate-keyframe")
 async def generate_shot_keyframe(
     project_id: int,

@@ -208,6 +208,50 @@
             </article>
           </section>
         </div>
+
+        <section class="video-workbench__render-pipeline" aria-label="Render Pipeline">
+          <div>
+            <p class="video-workbench__eyebrow">Render Pipeline</p>
+            <h3>Render Plan</h3>
+          </div>
+          <div class="video-workbench__render-actions">
+            <button
+              type="button"
+              data-testid="generate-render-plan"
+              :disabled="isGeneratingRenderPlan"
+              @click="handleGenerateRenderPlan"
+            >
+              {{ isGeneratingRenderPlan ? 'Generating render plan...' : 'Generate Render Plan' }}
+            </button>
+            <button
+              type="button"
+              data-testid="export-render-plan"
+              :disabled="isExportingRenderPlan"
+              @click="handleExportRenderPlan"
+            >
+              {{ isExportingRenderPlan ? 'Exporting...' : 'Export Render Plan' }}
+            </button>
+          </div>
+          <p v-if="renderPlanMessage" class="video-workbench__upload-message">
+            {{ renderPlanMessage }}
+          </p>
+          <table v-if="renderPlanItems.length" class="video-workbench__render-table">
+            <thead>
+              <tr>
+                <th>Shot Order</th>
+                <th>Video Path</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in renderPlanItems" :key="item.shot_id">
+                <td>#{{ item.order }}</td>
+                <td>{{ item.video_path }}</td>
+                <td>{{ item.duration_seconds }}s</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
       </section>
 
       <header class="video-workbench__header">
@@ -322,11 +366,14 @@ import {
   bindShotAsset,
   createProjectAsset,
   createProject,
+  exportRenderPlan,
   generateKeyframe,
   generateProjectImage,
+  generateRenderPlan,
   generateVideo,
   getNanoBananaProviderSettings,
   getProjectShots,
+  getRenderPlan,
   importStoryboard,
   listProjectAssets,
   listProjects,
@@ -365,6 +412,10 @@ const isGeneratingKeyframe = ref(false)
 const keyframeMessage = ref('')
 const isGeneratingVideo = ref(false)
 const videoMessage = ref('')
+const renderPlan = ref(null)
+const renderPlanMessage = ref('')
+const isGeneratingRenderPlan = ref(false)
+const isExportingRenderPlan = ref(false)
 
 const assetFields = [
   { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png', accept: 'image/*' },
@@ -416,6 +467,8 @@ const assetLibraryGroups = computed(() => [
 const uploadAccept = computed(() => {
   return uploadAssetType.value === 'video' ? 'video/*' : 'image/*'
 })
+
+const renderPlanItems = computed(() => renderPlan.value?.items || [])
 
 onMounted(() => {
   refreshProjects()
@@ -497,6 +550,7 @@ async function handleSelectProject() {
     parsed.value = null
     shots.value = []
     projectAssets.value = []
+    renderPlan.value = null
     selectedShot.value = null
     validationReport.value = { render_ready: false, issues: [] }
     return
@@ -509,9 +563,11 @@ async function loadProjectShots(projectId) {
   try {
     const payload = await getProjectShots(projectId)
     const assetPayload = await listProjectAssets(projectId)
+    const renderPayload = await getRenderPlan(projectId)
     parsed.value = { project: selectedProject.value, shots: payload.shots || [] }
     shots.value = payload.shots || []
     projectAssets.value = assetPayload.assets || []
+    renderPlan.value = renderPayload
     selectedShot.value = findUpdatedSelectedShot(shots.value)
     syncAssetPaths()
     validationReport.value = buildValidationReport(shots.value)
@@ -742,6 +798,45 @@ async function handleGenerateVideo() {
     videoMessage.value = err instanceof Error ? err.message : '视频生成失败'
   } finally {
     isGeneratingVideo.value = false
+  }
+}
+
+async function handleGenerateRenderPlan() {
+  renderPlanMessage.value = ''
+
+  if (!selectedProject.value) {
+    renderPlanMessage.value = '请先选择项目。'
+    return
+  }
+
+  isGeneratingRenderPlan.value = true
+
+  try {
+    renderPlan.value = await generateRenderPlan(selectedProject.value.id)
+  } catch (err) {
+    renderPlanMessage.value = err instanceof Error ? err.message : '生成 Render Plan 失败'
+  } finally {
+    isGeneratingRenderPlan.value = false
+  }
+}
+
+async function handleExportRenderPlan() {
+  renderPlanMessage.value = ''
+
+  if (!selectedProject.value) {
+    renderPlanMessage.value = '请先选择项目。'
+    return
+  }
+
+  isExportingRenderPlan.value = true
+
+  try {
+    const exported = await exportRenderPlan(selectedProject.value.id)
+    renderPlanMessage.value = `Render plan exported. ${exported.path}`
+  } catch (err) {
+    renderPlanMessage.value = err instanceof Error ? err.message : '导出 Render Plan 失败'
+  } finally {
+    isExportingRenderPlan.value = false
   }
 }
 

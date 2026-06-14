@@ -9,7 +9,10 @@ import {
   generateKeyframe,
   generateProjectImage,
   generateVideo,
+  generateRenderPlan,
+  exportRenderPlan,
   getNanoBananaProviderSettings,
+  getRenderPlan,
   getProjectShots,
   listProjectAssets,
   listProjects,
@@ -37,6 +40,43 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
     shot_id: 1,
     video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
     asset_type: 'video'
+  }),
+  generateRenderPlan: vi.fn().mockResolvedValue({
+    id: 5,
+    project_id: 7,
+    items: [
+      {
+        shot_id: 1,
+        order: 1,
+        video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
+        duration_seconds: 2
+      }
+    ]
+  }),
+  getRenderPlan: vi.fn().mockResolvedValue({
+    id: 5,
+    project_id: 7,
+    items: [
+      {
+        shot_id: 1,
+        order: 1,
+        video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
+        duration_seconds: 2
+      }
+    ]
+  }),
+  exportRenderPlan: vi.fn().mockResolvedValue({
+    path: 'data/exports/7/render-plan.json',
+    render_plan: {
+      project_id: 7,
+      shots: [
+        {
+          shot_id: 1,
+          video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
+          duration_seconds: 2
+        }
+      ]
+    }
   }),
   getNanoBananaProviderSettings: vi.fn().mockResolvedValue({
     settings: {
@@ -638,5 +678,72 @@ describe('VideoWorkbench', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Video provider error.')
+  })
+
+  it('renders the render pipeline panel', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Render Pipeline')
+    expect(wrapper.find('[data-testid="generate-render-plan"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="export-render-plan"]').exists()).toBe(true)
+  })
+
+  it('calls generateRenderPlan', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-render-plan"]').trigger('click')
+    await flushPromises()
+
+    expect(generateRenderPlan).toHaveBeenCalledWith(7)
+  })
+
+  it('shows the render plan list', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-render-plan"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Shot Order')
+    expect(wrapper.text()).toContain('data/uploads/7/generated/videos/jimeng-video-1.mp4')
+    expect(wrapper.text()).toContain('2s')
+  })
+
+  it('calls exportRenderPlan', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="export-render-plan"]').trigger('click')
+    await flushPromises()
+
+    expect(exportRenderPlan).toHaveBeenCalledWith(7)
+  })
+
+  it('shows export success', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="export-render-plan"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Render plan exported.')
+    expect(wrapper.text()).toContain('data/exports/7/render-plan.json')
   })
 })

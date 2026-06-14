@@ -142,3 +142,19 @@ export function generateVideo(projectId, shotId) {
     body: JSON.stringify({ provider: 'jimeng' })
   })
 }
+
+export function generateRenderPlan(projectId) {
+  return request(`/api/video-workbench/projects/${projectId}/render-plan`, {
+    method: 'POST'
+  })
+}
+
+export function getRenderPlan(projectId) {
+  return request(`/api/video-workbench/projects/${projectId}/render-plan`)
+}
+
+export function exportRenderPlan(projectId) {
+  return request(`/api/video-workbench/projects/${projectId}/render-plan/export`, {
+    method: 'POST'
+  })
+}

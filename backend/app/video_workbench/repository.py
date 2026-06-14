@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -90,6 +91,30 @@ class VideoWorkbenchRepository:
                     api_key TEXT DEFAULT '',
                     base_url TEXT DEFAULT '',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS render_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(project_id) REFERENCES video_projects(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS render_plan_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    render_plan_id INTEGER NOT NULL,
+                    shot_id INTEGER NOT NULL,
+                    item_order INTEGER NOT NULL,
+                    video_path TEXT NOT NULL,
+                    duration_seconds REAL NOT NULL,
+                    FOREIGN KEY(render_plan_id) REFERENCES render_plans(id) ON DELETE CASCADE
                 )
                 """
             )
@@ -263,6 +288,115 @@ class VideoWorkbenchRepository:
             }
 
         return dict(row)
+
+    def create_render_plan(self, project_id: int):
+        self.get_project(project_id)
+        shots = [shot for shot in self.get_project_shots(project_id) if shot.video_path]
+
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM render_plans WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if existing is not None:
+                conn.execute("DELETE FROM render_plan_items WHERE render_plan_id = ?", (existing["id"],))
+                conn.execute("DELETE FROM render_plans WHERE id = ?", (existing["id"],))
+
+            cursor = conn.execute(
+                """
+                INSERT INTO render_plans (project_id, created_at, updated_at)
+                VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (project_id,),
+            )
+            render_plan_id = cursor.lastrowid
+
+            conn.executemany(
+                """
+                INSERT INTO render_plan_items (
+                    render_plan_id, shot_id, item_order, video_path, duration_seconds
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        render_plan_id,
+                        shot.shot_id,
+                        index,
+                        shot.video_path,
+                        shot.duration_seconds,
+                    )
+                    for index, shot in enumerate(sorted(shots, key=lambda item: item.shot_id), start=1)
+                ],
+            )
+
+        return self.get_render_plan(project_id)
+
+    def get_render_plan(self, project_id: int):
+        self.get_project(project_id)
+
+        with self._connect() as conn:
+            plan = conn.execute(
+                "SELECT * FROM render_plans WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+
+            if plan is None:
+                return {
+                    "id": None,
+                    "project_id": project_id,
+                    "created_at": "",
+                    "updated_at": "",
+                    "items": [],
+                }
+
+            items = conn.execute(
+                """
+                SELECT shot_id, item_order, video_path, duration_seconds
+                FROM render_plan_items
+                WHERE render_plan_id = ?
+                ORDER BY item_order
+                """,
+                (plan["id"],),
+            ).fetchall()
+
+        return {
+            "id": plan["id"],
+            "project_id": plan["project_id"],
+            "created_at": plan["created_at"],
+            "updated_at": plan["updated_at"],
+            "items": [
+                {
+                    "shot_id": item["shot_id"],
+                    "order": item["item_order"],
+                    "video_path": item["video_path"],
+                    "duration_seconds": item["duration_seconds"],
+                }
+                for item in items
+            ],
+        }
+
+    def export_render_plan(self, project_id: int):
+        plan = self.get_render_plan(project_id)
+        export_data = {
+            "project_id": project_id,
+            "shots": [
+                {
+                    "shot_id": item["shot_id"],
+                    "video_path": item["video_path"],
+                    "duration_seconds": item["duration_seconds"],
+                }
+                for item in plan["items"]
+            ],
+        }
+        export_dir = Path("data") / "exports" / str(project_id)
+        export_dir.mkdir(parents=True, exist_ok=True)
+        export_path = export_dir / "render-plan.json"
+        export_path.write_text(json.dumps(export_data, ensure_ascii=False, indent=2))
+        return {
+            "path": export_path.as_posix(),
+            "render_plan": export_data,
+        }
 
     def _ensure_column(self, conn, table: str, column: str, definition: str):
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
