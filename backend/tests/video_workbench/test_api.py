@@ -4,7 +4,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.video_workbench.api import get_repository, router
+from app.video_workbench.api import get_nano_banana_client, get_repository, router
+from app.video_workbench.nano_banana import (
+    NanoBananaInvalidKeyError,
+    NanoBananaProviderError,
+    NanoBananaTimeoutError,
+)
 from app.video_workbench.repository import VideoWorkbenchRepository
 
 
@@ -29,6 +34,26 @@ STORYBOARD_TEXT = (
     "--- 提示词 ---\n"
     "Scene: Test"
 )
+
+
+class SuccessfulNanoBananaClient:
+    def generate_image(self, prompt: str, api_key: str, base_url: str) -> bytes:
+        return b"generated-image"
+
+
+class InvalidKeyNanoBananaClient:
+    def generate_image(self, prompt: str, api_key: str, base_url: str) -> bytes:
+        raise NanoBananaInvalidKeyError("Invalid Nano Banana API key.")
+
+
+class TimeoutNanoBananaClient:
+    def generate_image(self, prompt: str, api_key: str, base_url: str) -> bytes:
+        raise NanoBananaTimeoutError("Nano Banana request timeout.")
+
+
+class ProviderErrorNanoBananaClient:
+    def generate_image(self, prompt: str, api_key: str, base_url: str) -> bytes:
+        raise NanoBananaProviderError("Nano Banana provider error.")
 
 
 def test_video_workbench_health(client):
@@ -306,3 +331,162 @@ def test_upload_project_asset_rejects_unknown_asset_type(client):
 
     assert response.status_code == 400
     assert "asset_type" in response.json()["detail"]
+
+
+def test_save_and_get_nano_banana_provider_settings(client):
+    save_response = client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "test-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+
+    assert save_response.status_code == 200
+    settings = save_response.json()["settings"]
+    assert settings["provider"] == "nano_banana"
+    assert settings["nano_banana_api_key"] == "test-key"
+    assert settings["nano_banana_base_url"] == "https://nano.example/generate"
+
+    get_response = client.get("/api/video-workbench/provider-settings/nano-banana")
+
+    assert get_response.status_code == 200
+    assert get_response.json()["settings"] == settings
+
+
+def test_create_project_asset_persists_source_and_prompt(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Source Prompt"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={
+            "asset_type": "image",
+            "name": "Generated Shot",
+            "path": "data/uploads/1/generated/generated-shot.png",
+            "source": "nano_banana",
+            "prompt": "Draw a tired stickman.",
+        },
+    )
+
+    assert response.status_code == 200
+    asset = response.json()["asset"]
+    assert asset["source"] == "nano_banana"
+    assert asset["prompt"] == "Draw a tired stickman."
+
+
+def test_generate_image_creates_asset_from_nano_banana(client):
+    client.app.dependency_overrides[get_nano_banana_client] = lambda: SuccessfulNanoBananaClient()
+    client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "test-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Generated Image"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/generate-image",
+        json={"prompt": "Draw a tired stickman."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["asset_type"] == "image"
+    assert payload["image_path"].startswith(f"data/uploads/{project_id}/generated/")
+    assert payload["asset_id"] == 1
+    assert Path(payload["image_path"]).read_bytes() == b"generated-image"
+
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assert assets[0]["source"] == "nano_banana"
+    assert assets[0]["prompt"] == "Draw a tired stickman."
+
+
+def test_generate_image_rejects_missing_prompt(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Missing Generate Prompt"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/generate-image",
+        json={"prompt": "   "},
+    )
+
+    assert response.status_code == 400
+    assert "prompt" in response.json()["detail"].lower()
+
+
+def test_generate_image_returns_invalid_key_error(client):
+    client.app.dependency_overrides[get_nano_banana_client] = lambda: InvalidKeyNanoBananaClient()
+    client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "bad-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Invalid Key"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/generate-image",
+        json={"prompt": "Draw a tired stickman."},
+    )
+
+    assert response.status_code == 401
+    assert "invalid" in response.json()["detail"].lower()
+
+
+def test_generate_image_returns_timeout_error(client):
+    client.app.dependency_overrides[get_nano_banana_client] = lambda: TimeoutNanoBananaClient()
+    client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "test-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Timeout"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/generate-image",
+        json={"prompt": "Draw a tired stickman."},
+    )
+
+    assert response.status_code == 504
+    assert "timeout" in response.json()["detail"].lower()
+
+
+def test_generate_image_returns_provider_error(client):
+    client.app.dependency_overrides[get_nano_banana_client] = lambda: ProviderErrorNanoBananaClient()
+    client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "test-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Provider Error"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/generate-image",
+        json={"prompt": "Draw a tired stickman."},
+    )
+
+    assert response.status_code == 502
+    assert "provider" in response.json()["detail"].lower()

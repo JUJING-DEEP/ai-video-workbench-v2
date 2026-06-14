@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
+from .nano_banana import NanoBananaClient, NanoBananaError
 from .parser import parse_storyboard_text
 from .repository import VideoWorkbenchRepository
 
@@ -39,6 +40,17 @@ class CreateAssetRequest(BaseModel):
     asset_type: str
     name: str
     path: str
+    source: str = "manual"
+    prompt: str = ""
+
+
+class ProviderSettingsRequest(BaseModel):
+    nano_banana_api_key: str = ""
+    nano_banana_base_url: str = ""
+
+
+class GenerateImageRequest(BaseModel):
+    prompt: str
 
 
 def get_repository() -> VideoWorkbenchRepository:
@@ -50,6 +62,10 @@ def get_repository() -> VideoWorkbenchRepository:
     repository = VideoWorkbenchRepository(db_path=db_path, projects_root=projects_root)
     repository.init_schema()
     return repository
+
+
+def get_nano_banana_client() -> NanoBananaClient:
+    return NanoBananaClient()
 
 
 @router.get("/health")
@@ -185,6 +201,8 @@ async def create_project_asset(
     asset_type = data.asset_type.strip()
     name = data.name.strip()
     path = data.path.strip()
+    source = data.source.strip() or "manual"
+    prompt = data.prompt.strip()
 
     if asset_type not in {"image", "keyframe", "video"}:
         raise HTTPException(
@@ -197,11 +215,101 @@ async def create_project_asset(
         raise HTTPException(status_code=400, detail="Asset path is required.")
 
     try:
-        asset = repository.create_asset(project_id, asset_type, name, path)
+        asset = repository.create_asset(project_id, asset_type, name, path, source, prompt)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return jsonable_encoder({"asset": asset})
+
+
+@router.get("/provider-settings/nano-banana")
+async def get_nano_banana_provider_settings(
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    settings = repository.get_provider_settings("nano_banana")
+    return jsonable_encoder(
+        {
+            "settings": {
+                "provider": "nano_banana",
+                "nano_banana_api_key": settings["api_key"],
+                "nano_banana_base_url": settings["base_url"],
+                "updated_at": settings["updated_at"],
+            }
+        }
+    )
+
+
+@router.put("/provider-settings/nano-banana")
+async def save_nano_banana_provider_settings(
+    data: ProviderSettingsRequest,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    settings = repository.save_provider_settings(
+        "nano_banana",
+        data.nano_banana_api_key.strip(),
+        data.nano_banana_base_url.strip(),
+    )
+    return jsonable_encoder(
+        {
+            "settings": {
+                "provider": "nano_banana",
+                "nano_banana_api_key": settings["api_key"],
+                "nano_banana_base_url": settings["base_url"],
+                "updated_at": settings["updated_at"],
+            }
+        }
+    )
+
+
+@router.post("/projects/{project_id}/generate-image")
+async def generate_project_image(
+    project_id: int,
+    data: GenerateImageRequest,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+    nano_banana_client: NanoBananaClient = Depends(get_nano_banana_client),
+):
+    prompt = data.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt is required.")
+
+    try:
+        repository.get_project(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    settings = repository.get_provider_settings("nano_banana")
+    api_key = settings["api_key"].strip()
+    base_url = settings["base_url"].strip()
+    if not api_key or not base_url:
+        raise HTTPException(status_code=400, detail="Nano Banana provider settings are required.")
+
+    try:
+        image_bytes = nano_banana_client.generate_image(prompt, api_key, base_url)
+    except NanoBananaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    generated_dir = Path("data") / "uploads" / str(project_id) / "generated"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"nano-banana-{abs(hash(prompt))}.png"
+    image_path = generated_dir / filename
+    image_path.write_bytes(image_bytes)
+
+    asset = repository.create_asset(
+        project_id,
+        asset_type="image",
+        name=filename,
+        path=image_path.as_posix(),
+        source="nano_banana",
+        prompt=prompt,
+    )
+
+    return jsonable_encoder(
+        {
+            "asset_id": asset["id"],
+            "image_path": asset["path"],
+            "asset_type": "image",
+        }
+    )
 
 
 @router.post("/projects/{project_id}/upload")

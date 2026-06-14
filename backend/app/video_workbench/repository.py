@@ -74,8 +74,22 @@ class VideoWorkbenchRepository:
                     asset_type TEXT NOT NULL,
                     name TEXT NOT NULL,
                     path TEXT NOT NULL,
+                    source TEXT DEFAULT 'manual',
+                    prompt TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(project_id) REFERENCES video_projects(id) ON DELETE CASCADE
+                )
+                """
+            )
+            self._ensure_column(conn, "video_assets", "source", "TEXT DEFAULT 'manual'")
+            self._ensure_column(conn, "video_assets", "prompt", "TEXT DEFAULT ''")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS provider_settings (
+                    provider TEXT PRIMARY KEY,
+                    api_key TEXT DEFAULT '',
+                    base_url TEXT DEFAULT '',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
@@ -175,16 +189,24 @@ class VideoWorkbenchRepository:
             if cursor.rowcount == 0:
                 raise KeyError(f"Shot not found: {project_id}/{shot_id}")
 
-    def create_asset(self, project_id: int, asset_type: str, name: str, path: str):
+    def create_asset(
+        self,
+        project_id: int,
+        asset_type: str,
+        name: str,
+        path: str,
+        source: str = "manual",
+        prompt: str = "",
+    ):
         self.get_project(project_id)
 
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO video_assets (project_id, asset_type, name, path)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO video_assets (project_id, asset_type, name, path, source, prompt)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (project_id, asset_type, name, path),
+                (project_id, asset_type, name, path, source, prompt),
             )
             asset_id = cursor.lastrowid
             row = conn.execute(
@@ -208,6 +230,45 @@ class VideoWorkbenchRepository:
             ).fetchall()
 
         return [dict(row) for row in rows]
+
+    def save_provider_settings(self, provider: str, api_key: str, base_url: str):
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO provider_settings (provider, api_key, base_url, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(provider) DO UPDATE SET
+                    api_key = excluded.api_key,
+                    base_url = excluded.base_url,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (provider, api_key, base_url),
+            )
+
+        return self.get_provider_settings(provider)
+
+    def get_provider_settings(self, provider: str):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM provider_settings WHERE provider = ?",
+                (provider,),
+            ).fetchone()
+
+        if row is None:
+            return {
+                "provider": provider,
+                "api_key": "",
+                "base_url": "",
+                "updated_at": "",
+            }
+
+        return dict(row)
+
+    def _ensure_column(self, conn, table: str, column: str, definition: str):
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        existing_columns = {row["name"] for row in rows}
+        if column not in existing_columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _unique_slug(self, title: str) -> str:
         base_slug = _slugify(title)

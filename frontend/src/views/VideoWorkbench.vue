@@ -37,6 +37,42 @@
         当前项目：{{ selectedProject.title }} / {{ selectedProject.slug }}
       </p>
 
+      <section class="video-workbench__provider-settings" aria-label="Provider Settings">
+        <div>
+          <p class="video-workbench__eyebrow">Provider Settings</p>
+          <h2>Nano Banana</h2>
+        </div>
+        <div class="video-workbench__settings-grid">
+          <div class="video-workbench__field">
+            <label for="nano-banana-api-key">API Key</label>
+            <input
+              id="nano-banana-api-key"
+              v-model="nanoBananaSettings.nano_banana_api_key"
+              type="password"
+              placeholder="Nano Banana API key"
+            />
+          </div>
+          <div class="video-workbench__field">
+            <label for="nano-banana-base-url">Base URL</label>
+            <input
+              id="nano-banana-base-url"
+              v-model="nanoBananaSettings.nano_banana_base_url"
+              type="text"
+              placeholder="https://..."
+            />
+          </div>
+          <button
+            type="button"
+            data-testid="save-nano-banana-settings"
+            :disabled="isSavingProviderSettings"
+            @click="handleSaveProviderSettings"
+          >
+            {{ isSavingProviderSettings ? '保存中...' : 'Save provider settings' }}
+          </button>
+        </div>
+        <p v-if="providerMessage" class="video-workbench__upload-message">{{ providerMessage }}</p>
+      </section>
+
       <section v-if="selectedProject" class="video-workbench__asset-library" aria-label="素材库">
         <div>
           <p class="video-workbench__eyebrow">Asset Library</p>
@@ -72,6 +108,30 @@
         </section>
 
         <p v-if="uploadMessage" class="video-workbench__upload-message">{{ uploadMessage }}</p>
+
+        <section class="video-workbench__ai-generator" aria-label="AI Image Generator">
+          <div>
+            <p class="video-workbench__eyebrow">AI Image Generator</p>
+            <h3>Nano Banana image</h3>
+          </div>
+          <textarea
+            id="nano-banana-prompt"
+            v-model="nanoBananaPrompt"
+            aria-label="Nano Banana prompt"
+            placeholder="Describe the image to generate..."
+          ></textarea>
+          <button
+            type="button"
+            data-testid="generate-nano-banana-image"
+            :disabled="isGeneratingImage || !selectedProject"
+            @click="handleGenerateImage"
+          >
+            {{ isGeneratingImage ? 'Generating...' : 'Generate image' }}
+          </button>
+          <p v-if="generationMessage" class="video-workbench__upload-message">
+            {{ generationMessage }}
+          </p>
+        </section>
 
         <div class="video-workbench__asset-groups">
           <section
@@ -213,11 +273,14 @@ import {
   bindShotAsset,
   createProjectAsset,
   createProject,
+  generateProjectImage,
+  getNanoBananaProviderSettings,
   getProjectShots,
   importStoryboard,
   listProjectAssets,
   listProjects,
   parseStoryboard,
+  saveNanoBananaProviderSettings,
   uploadProjectAsset
 } from '../services/videoWorkbenchApi'
 
@@ -240,6 +303,12 @@ const uploadAssetType = ref('image')
 const selectedUploadFile = ref(null)
 const isUploadingAsset = ref(false)
 const uploadMessage = ref('')
+const nanoBananaSettings = ref({ nano_banana_api_key: '', nano_banana_base_url: '' })
+const providerMessage = ref('')
+const isSavingProviderSettings = ref(false)
+const nanoBananaPrompt = ref('')
+const isGeneratingImage = ref(false)
+const generationMessage = ref('')
 
 const assetFields = [
   { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png', accept: 'image/*' },
@@ -294,6 +363,7 @@ const uploadAccept = computed(() => {
 
 onMounted(() => {
   refreshProjects()
+  loadProviderSettings()
 })
 
 async function refreshProjects() {
@@ -302,6 +372,35 @@ async function refreshProjects() {
     projects.value = payload.projects || []
   } catch (err) {
     error.value = err instanceof Error ? err.message : '加载项目列表失败'
+  }
+}
+
+async function loadProviderSettings() {
+  try {
+    const payload = await getNanoBananaProviderSettings()
+    nanoBananaSettings.value = {
+      nano_banana_api_key: payload.settings?.nano_banana_api_key || '',
+      nano_banana_base_url: payload.settings?.nano_banana_base_url || ''
+    }
+  } catch (err) {
+    providerMessage.value = err instanceof Error ? err.message : '加载 Provider Settings 失败'
+  }
+}
+
+async function handleSaveProviderSettings() {
+  providerMessage.value = ''
+  isSavingProviderSettings.value = true
+
+  try {
+    await saveNanoBananaProviderSettings({
+      nano_banana_api_key: nanoBananaSettings.value.nano_banana_api_key.trim(),
+      nano_banana_base_url: nanoBananaSettings.value.nano_banana_base_url.trim()
+    })
+    providerMessage.value = 'Provider settings saved.'
+  } catch (err) {
+    providerMessage.value = err instanceof Error ? err.message : '保存 Provider Settings 失败'
+  } finally {
+    isSavingProviderSettings.value = false
   }
 }
 
@@ -501,6 +600,34 @@ async function handleUploadAsset() {
   }
 }
 
+async function handleGenerateImage() {
+  generationMessage.value = ''
+
+  if (!selectedProject.value) {
+    generationMessage.value = '请先选择项目。'
+    return
+  }
+
+  const prompt = nanoBananaPrompt.value.trim()
+  if (!prompt) {
+    generationMessage.value = '请输入生成提示词。'
+    return
+  }
+
+  isGeneratingImage.value = true
+
+  try {
+    await generateProjectImage(selectedProject.value.id, prompt)
+    const assetPayload = await listProjectAssets(selectedProject.value.id)
+    projectAssets.value = assetPayload.assets || []
+    generationMessage.value = 'Image generated.'
+  } catch (err) {
+    generationMessage.value = err instanceof Error ? err.message : '图片生成失败'
+  } finally {
+    isGeneratingImage.value = false
+  }
+}
+
 function findUpdatedSelectedShot(currentShots) {
   if (!selectedShot.value) {
     return currentShots[0] || null
@@ -651,6 +778,26 @@ function buildValidationReport(currentShots) {
   margin: 0;
 }
 
+.video-workbench__provider-settings {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.video-workbench__provider-settings h2 {
+  margin: 0;
+}
+
+.video-workbench__settings-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.5fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 16px;
+}
+
 .video-workbench__asset-upload {
   display: grid;
   grid-template-columns: minmax(140px, 180px) minmax(180px, 1fr) auto;
@@ -663,6 +810,21 @@ function buildValidationReport(currentShots) {
   margin: 12px 0 0;
   color: #047857;
   font-weight: 700;
+}
+
+.video-workbench__ai-generator {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.video-workbench__ai-generator textarea {
+  min-height: 120px;
+  margin: 0;
 }
 
 .video-workbench__asset-groups {

@@ -6,9 +6,12 @@ import VideoWorkbench from '../VideoWorkbench.vue'
 import {
   bindShotAsset,
   createProjectAsset,
+  generateProjectImage,
+  getNanoBananaProviderSettings,
   getProjectShots,
   listProjectAssets,
   listProjects,
+  saveNanoBananaProviderSettings,
   uploadProjectAsset
 } from '../../services/videoWorkbenchApi'
 
@@ -16,6 +19,18 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   bindShotAsset: vi.fn().mockResolvedValue({ shot: {} }),
   createProject: vi.fn(),
   createProjectAsset: vi.fn().mockResolvedValue({ asset: {} }),
+  generateProjectImage: vi.fn().mockResolvedValue({
+    asset_id: 21,
+    image_path: 'data/uploads/7/generated/nano-banana.png',
+    asset_type: 'image'
+  }),
+  getNanoBananaProviderSettings: vi.fn().mockResolvedValue({
+    settings: {
+      provider: 'nano_banana',
+      nano_banana_api_key: 'existing-key',
+      nano_banana_base_url: 'https://nano.example/generate'
+    }
+  }),
   getProjectShots: vi.fn().mockResolvedValue({
     shots: [
       {
@@ -66,6 +81,13 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
     ]
   }),
   parseStoryboard: vi.fn(),
+  saveNanoBananaProviderSettings: vi.fn().mockResolvedValue({
+    settings: {
+      provider: 'nano_banana',
+      nano_banana_api_key: 'new-key',
+      nano_banana_base_url: 'https://nano.example/v2'
+    }
+  }),
   uploadProjectAsset: vi.fn().mockResolvedValue({
     name: 'uploaded.png',
     path: 'data/uploads/7/uploaded.png',
@@ -244,5 +266,54 @@ describe('VideoWorkbench', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Upload failed')
+  })
+
+  it('saves Nano Banana provider settings', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#nano-banana-api-key').setValue('new-key')
+    await wrapper.find('#nano-banana-base-url').setValue('https://nano.example/v2')
+    await wrapper.find('[data-testid="save-nano-banana-settings"]').trigger('click')
+    await flushPromises()
+
+    expect(getNanoBananaProviderSettings).toHaveBeenCalled()
+    expect(saveNanoBananaProviderSettings).toHaveBeenCalledWith({
+      nano_banana_api_key: 'new-key',
+      nano_banana_base_url: 'https://nano.example/v2'
+    })
+    expect(wrapper.text()).toContain('Provider settings saved.')
+  })
+
+  it('generates an image and refreshes the asset library', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('#nano-banana-prompt').setValue('Draw a tired stickman.')
+    await wrapper.find('[data-testid="generate-nano-banana-image"]').trigger('click')
+    await flushPromises()
+
+    expect(generateProjectImage).toHaveBeenCalledWith(7, 'Draw a tired stickman.')
+    expect(listProjectAssets).toHaveBeenCalledWith(7)
+    expect(wrapper.text()).toContain('Image generated.')
+  })
+
+  it('shows Nano Banana generation failures', async () => {
+    generateProjectImage.mockRejectedValueOnce(new Error('Provider error'))
+
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('#nano-banana-prompt').setValue('Draw a tired stickman.')
+    await wrapper.find('[data-testid="generate-nano-banana-image"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Provider error')
   })
 })

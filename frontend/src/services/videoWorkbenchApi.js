@@ -99,3 +99,21 @@ export async function uploadProjectAsset(projectId, assetType, file) {
 
   return response.json()
 }
+
+export function getNanoBananaProviderSettings() {
+  return request('/api/video-workbench/provider-settings/nano-banana')
+}
+
+export function saveNanoBananaProviderSettings(settings) {
+  return request('/api/video-workbench/provider-settings/nano-banana', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  })
+}
+
+export function generateProjectImage(projectId, prompt) {
+  return request(`/api/video-workbench/projects/${projectId}/generate-image`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt })
+  })
+}
