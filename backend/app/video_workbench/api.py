@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from .nano_banana import NanoBananaClient, NanoBananaError
 from .parser import parse_storyboard_text
 from .repository import VideoWorkbenchRepository
+from .video_provider import MockVideoProvider, VideoGenerationProvider, VideoProviderError
 
 router = APIRouter(prefix="/api/video-workbench", tags=["video-workbench"])
 
@@ -49,8 +50,17 @@ class ProviderSettingsRequest(BaseModel):
     nano_banana_base_url: str = ""
 
 
+class JimengSettingsRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
+
+
 class GenerateImageRequest(BaseModel):
     prompt: str
+
+
+class GenerateVideoRequest(BaseModel):
+    provider: str = "jimeng"
 
 
 def get_repository() -> VideoWorkbenchRepository:
@@ -66,6 +76,10 @@ def get_repository() -> VideoWorkbenchRepository:
 
 def get_nano_banana_client() -> NanoBananaClient:
     return NanoBananaClient()
+
+
+def get_video_provider() -> VideoGenerationProvider:
+    return MockVideoProvider()
 
 
 @router.get("/health")
@@ -261,6 +275,45 @@ async def save_nano_banana_provider_settings(
     )
 
 
+@router.get("/provider-settings/jimeng")
+async def get_jimeng_provider_settings(
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    settings = repository.get_provider_settings("jimeng")
+    return jsonable_encoder(
+        {
+            "settings": {
+                "provider": "jimeng",
+                "api_key": settings["api_key"],
+                "base_url": settings["base_url"],
+                "updated_at": settings["updated_at"],
+            }
+        }
+    )
+
+
+@router.put("/provider-settings/jimeng")
+async def save_jimeng_provider_settings(
+    data: JimengSettingsRequest,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    settings = repository.save_provider_settings(
+        "jimeng",
+        data.api_key.strip(),
+        data.base_url.strip(),
+    )
+    return jsonable_encoder(
+        {
+            "settings": {
+                "provider": "jimeng",
+                "api_key": settings["api_key"],
+                "base_url": settings["base_url"],
+                "updated_at": settings["updated_at"],
+            }
+        }
+    )
+
+
 @router.post("/projects/{project_id}/generate-image")
 async def generate_project_image(
     project_id: int,
@@ -308,6 +361,67 @@ async def generate_project_image(
             "asset_id": asset["id"],
             "image_path": asset["path"],
             "asset_type": "image",
+        }
+    )
+
+
+@router.post("/projects/{project_id}/shots/{shot_id}/generate-video")
+async def generate_shot_video(
+    project_id: int,
+    shot_id: int,
+    data: GenerateVideoRequest,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+    video_provider: VideoGenerationProvider = Depends(get_video_provider),
+):
+    provider = data.provider.strip() or "jimeng"
+    if provider != "jimeng":
+        raise HTTPException(status_code=400, detail="provider must be jimeng.")
+
+    try:
+        repository.get_project(project_id)
+        shots = repository.get_project_shots(project_id)
+        shot = next(shot for shot in shots if shot.shot_id == shot_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StopIteration as exc:
+        raise HTTPException(status_code=404, detail=f"Shot not found: {project_id}/{shot_id}") from exc
+
+    keyframe_path = shot.keyframe_path.strip()
+    if not keyframe_path:
+        raise HTTPException(status_code=400, detail="Shot must have a keyframe before video generation.")
+
+    settings = repository.get_provider_settings(provider)
+    api_key = settings["api_key"].strip()
+    base_url = settings["base_url"].strip()
+    if not api_key or not base_url:
+        raise HTTPException(status_code=400, detail="Jimeng provider settings are required.")
+
+    try:
+        video_bytes = video_provider.generate_video(keyframe_path, api_key, base_url)
+    except VideoProviderError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    generated_dir = Path("data") / "uploads" / str(project_id) / "generated" / "videos"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"jimeng-video-{shot_id}.mp4"
+    video_path = generated_dir / filename
+    video_path.write_bytes(video_bytes)
+
+    asset = repository.create_asset(
+        project_id,
+        asset_type="video",
+        name=filename,
+        path=video_path.as_posix(),
+        source=provider,
+    )
+    repository.bind_asset(project_id, shot_id, "video", asset["path"])
+
+    return jsonable_encoder(
+        {
+            "asset_id": asset["id"],
+            "shot_id": shot_id,
+            "video_path": asset["path"],
+            "asset_type": "video",
         }
     )
 

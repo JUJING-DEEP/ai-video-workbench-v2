@@ -8,6 +8,7 @@ import {
   createProjectAsset,
   generateKeyframe,
   generateProjectImage,
+  generateVideo,
   getNanoBananaProviderSettings,
   getProjectShots,
   listProjectAssets,
@@ -30,6 +31,12 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
     asset_id: 21,
     image_path: 'data/uploads/7/generated/nano-banana.png',
     asset_type: 'image'
+  }),
+  generateVideo: vi.fn().mockResolvedValue({
+    asset_id: 41,
+    shot_id: 1,
+    video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
+    asset_type: 'video'
   }),
   getNanoBananaProviderSettings: vi.fn().mockResolvedValue({
     settings: {
@@ -439,5 +446,197 @@ describe('VideoWorkbench', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Invalid Nano Banana API key.')
+  })
+
+  it('renders the video generator panel', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Video Generator')
+    expect(wrapper.find('[data-testid="generate-video"]').exists()).toBe(true)
+  })
+
+  it('disables video generation without a keyframe', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="generate-video"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Please generate or bind a keyframe first.')
+  })
+
+  it('calls generateVideo for the selected shot', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-video"]').trigger('click')
+    await flushPromises()
+
+    expect(generateVideo).toHaveBeenCalledWith(7, 1)
+  })
+
+  it('shows video generation loading state', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    let resolveGenerate
+    generateVideo.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveGenerate = resolve
+      })
+    )
+
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-video"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Generating video...')
+
+    resolveGenerate({
+      asset_id: 41,
+      shot_id: 1,
+      video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
+      asset_type: 'video'
+    })
+    await flushPromises()
+  })
+
+  it('shows video generation success state and preview', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-video"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Video generated.')
+    expect(wrapper.find('video[aria-label="视频预览"]').attributes('src')).toBe(
+      'data/uploads/7/generated/videos/jimeng-video-1.mp4'
+    )
+  })
+
+  it('refreshes asset library after video generation', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-video"]').trigger('click')
+    await flushPromises()
+
+    expect(listProjectAssets).toHaveBeenCalledWith(7)
+  })
+
+  it('shows video generation errors', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    generateVideo.mockRejectedValueOnce(new Error('Video provider error.'))
+
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="generate-video"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Video provider error.')
   })
 })

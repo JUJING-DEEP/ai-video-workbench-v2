@@ -111,6 +111,17 @@ export function saveNanoBananaProviderSettings(settings) {
   })
 }
 
+export function getJimengSettings() {
+  return request('/api/video-workbench/provider-settings/jimeng')
+}
+
+export function saveJimengSettings(settings) {
+  return request('/api/video-workbench/provider-settings/jimeng', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  })
+}
+
 export function generateProjectImage(projectId, prompt) {
   return request(`/api/video-workbench/projects/${projectId}/generate-image`, {
     method: 'POST',
@@ -122,5 +133,12 @@ export function generateKeyframe(projectId, shotId, prompt) {
   return request(`/api/video-workbench/projects/${projectId}/shots/${shotId}/generate-keyframe`, {
     method: 'POST',
     body: JSON.stringify({ prompt })
+  })
+}
+
+export function generateVideo(projectId, shotId) {
+  return request(`/api/video-workbench/projects/${projectId}/shots/${shotId}/generate-video`, {
+    method: 'POST',
+    body: JSON.stringify({ provider: 'jimeng' })
   })
 }

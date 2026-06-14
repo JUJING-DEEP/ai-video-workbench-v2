@@ -279,6 +279,28 @@
               </button>
             </div>
           </section>
+
+          <section class="video-workbench__video-generator" aria-label="Video Generator">
+            <h4>Video Generator</h4>
+            <p class="video-workbench__muted">
+              Current Keyframe: {{ selectedShot.keyframe_path || '未绑定' }}
+            </p>
+            <p v-if="!selectedShot.keyframe_path" class="video-workbench__muted">
+              Please generate or bind a keyframe first.
+            </p>
+            <button
+              type="button"
+              data-testid="generate-video"
+              :disabled="isGeneratingVideo || !selectedProject || !selectedShot.keyframe_path"
+              @click="handleGenerateVideo"
+            >
+              {{ isGeneratingVideo ? 'Generating video...' : 'Generate Video' }}
+            </button>
+            <p v-if="videoMessage" class="video-workbench__upload-message">{{ videoMessage }}</p>
+            <div v-if="assetPreviews.video" class="video-workbench__asset-preview">
+              <video :src="assetPreviews.video.url" controls aria-label="视频预览" />
+            </div>
+          </section>
         </aside>
 
         <ValidationPanel :report="validationReport" />
@@ -302,6 +324,7 @@ import {
   createProject,
   generateKeyframe,
   generateProjectImage,
+  generateVideo,
   getNanoBananaProviderSettings,
   getProjectShots,
   importStoryboard,
@@ -340,6 +363,8 @@ const generationMessage = ref('')
 const keyframePrompt = ref('')
 const isGeneratingKeyframe = ref(false)
 const keyframeMessage = ref('')
+const isGeneratingVideo = ref(false)
+const videoMessage = ref('')
 
 const assetFields = [
   { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png', accept: 'image/*' },
@@ -687,6 +712,36 @@ async function handleGenerateKeyframe() {
     keyframeMessage.value = err instanceof Error ? err.message : '关键帧生成失败'
   } finally {
     isGeneratingKeyframe.value = false
+  }
+}
+
+async function handleGenerateVideo() {
+  videoMessage.value = ''
+
+  if (!selectedProject.value || !selectedShot.value) {
+    videoMessage.value = '请先选择项目和镜头。'
+    return
+  }
+
+  if (!selectedShot.value.keyframe_path) {
+    videoMessage.value = 'Please generate or bind a keyframe first.'
+    return
+  }
+
+  isGeneratingVideo.value = true
+
+  try {
+    const result = await generateVideo(selectedProject.value.id, selectedShot.value.shot_id)
+    await loadProjectShots(selectedProject.value.id)
+    assetPreviews.value.video = {
+      url: result.video_path,
+      kind: 'video'
+    }
+    videoMessage.value = 'Video generated.'
+  } catch (err) {
+    videoMessage.value = err instanceof Error ? err.message : '视频生成失败'
+  } finally {
+    isGeneratingVideo.value = false
   }
 }
 

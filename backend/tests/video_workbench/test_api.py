@@ -733,3 +733,161 @@ def test_generate_keyframe_provider_error(client):
 
     assert response.status_code == 502
     assert "provider" in response.json()["detail"].lower()
+
+
+def _create_project_with_shot(client, title="Video Project"):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": title},
+    ).json()["project"]["id"]
+    client.post(
+        f"/api/video-workbench/projects/{project_id}/storyboard",
+        json={"text": STORYBOARD_TEXT},
+    )
+    return project_id
+
+
+def _save_jimeng_settings(client, api_key="test-key", base_url="https://jimeng.example/generate"):
+    return client.put(
+        "/api/video-workbench/provider-settings/jimeng",
+        json={"api_key": api_key, "base_url": base_url},
+    )
+
+
+def _bind_keyframe(client, project_id, shot_id=1, path="/renders/keyframe.png"):
+    return client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/{shot_id}/assets",
+        json={"asset_type": "keyframe", "path": path},
+    )
+
+
+def test_jimeng_settings_save(client):
+    response = _save_jimeng_settings(client)
+
+    assert response.status_code == 200
+    settings = response.json()["settings"]
+    assert settings["provider"] == "jimeng"
+    assert settings["api_key"] == "test-key"
+    assert settings["base_url"] == "https://jimeng.example/generate"
+
+
+def test_jimeng_settings_load(client):
+    saved = _save_jimeng_settings(client).json()["settings"]
+
+    response = client.get("/api/video-workbench/provider-settings/jimeng")
+
+    assert response.status_code == 200
+    assert response.json()["settings"] == saved
+
+
+def test_generate_video_success(client):
+    _save_jimeng_settings(client)
+    project_id = _create_project_with_shot(client, "Generate Video")
+    _bind_keyframe(client, project_id)
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["asset_type"] == "video"
+    assert payload["shot_id"] == 1
+    assert payload["asset_id"] == 1
+    assert payload["video_path"].startswith(f"data/uploads/{project_id}/generated/videos/")
+    assert Path(payload["video_path"]).read_bytes().startswith(b"mock-video")
+
+
+def test_generate_video_without_keyframe(client):
+    _save_jimeng_settings(client)
+    project_id = _create_project_with_shot(client, "Video Missing Keyframe")
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assert response.status_code == 400
+    assert "keyframe" in response.json()["detail"].lower()
+
+
+def test_generate_video_unknown_project(client):
+    response = client.post(
+        "/api/video-workbench/projects/999/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assert response.status_code == 404
+    assert "project" in response.json()["detail"].lower()
+
+
+def test_generate_video_unknown_shot(client):
+    _save_jimeng_settings(client)
+    project_id = _create_project_with_shot(client, "Unknown Video Shot")
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/999/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assert response.status_code == 404
+    assert "shot" in response.json()["detail"].lower()
+
+
+def test_generate_video_creates_asset(client):
+    _save_jimeng_settings(client)
+    project_id = _create_project_with_shot(client, "Video Asset")
+    _bind_keyframe(client, project_id)
+
+    client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assert assets[0]["asset_type"] == "video"
+    assert assets[0]["source"] == "jimeng"
+    assert assets[0]["path"].startswith(f"data/uploads/{project_id}/generated/videos/")
+
+
+def test_generate_video_binds_to_shot(client):
+    _save_jimeng_settings(client)
+    project_id = _create_project_with_shot(client, "Bind Video")
+    _bind_keyframe(client, project_id)
+
+    payload = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    ).json()
+
+    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots").json()["shots"][0]
+    assert shot["video_path"] == payload["video_path"]
+
+
+def test_provider_timeout(client):
+    _save_jimeng_settings(client, api_key="timeout")
+    project_id = _create_project_with_shot(client, "Video Timeout")
+    _bind_keyframe(client, project_id)
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assert response.status_code == 504
+    assert "timeout" in response.json()["detail"].lower()
+
+
+def test_provider_error(client):
+    _save_jimeng_settings(client, api_key="provider-error")
+    project_id = _create_project_with_shot(client, "Video Provider Error")
+    _bind_keyframe(client, project_id)
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "jimeng"},
+    )
+
+    assert response.status_code == 502
+    assert "provider" in response.json()["detail"].lower()
