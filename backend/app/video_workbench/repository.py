@@ -92,10 +92,12 @@ class VideoWorkbenchRepository:
                     provider TEXT PRIMARY KEY,
                     api_key TEXT DEFAULT '',
                     base_url TEXT DEFAULT '',
+                    enabled INTEGER DEFAULT 1,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
+            self._ensure_column(conn, "provider_settings", "enabled", "INTEGER DEFAULT 1")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS render_plans (
@@ -259,18 +261,19 @@ class VideoWorkbenchRepository:
 
         return [dict(row) for row in rows]
 
-    def save_provider_settings(self, provider: str, api_key: str, base_url: str):
+    def save_provider_settings(self, provider: str, api_key: str, base_url: str, enabled: bool = True):
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO provider_settings (provider, api_key, base_url, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO provider_settings (provider, api_key, base_url, enabled, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(provider) DO UPDATE SET
                     api_key = excluded.api_key,
                     base_url = excluded.base_url,
+                    enabled = excluded.enabled,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (provider, api_key, base_url),
+                (provider, api_key, base_url, 1 if enabled else 0),
             )
 
         return self.get_provider_settings(provider)
@@ -287,10 +290,13 @@ class VideoWorkbenchRepository:
                 "provider": provider,
                 "api_key": "",
                 "base_url": "",
+                "enabled": True,
                 "updated_at": "",
             }
 
-        return dict(row)
+        settings = dict(row)
+        settings["enabled"] = bool(settings.get("enabled", True))
+        return settings
 
     def create_render_plan(self, project_id: int):
         self.get_project(project_id)

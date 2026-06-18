@@ -71,6 +71,41 @@
           </button>
         </div>
         <p v-if="providerMessage" class="video-workbench__upload-message">{{ providerMessage }}</p>
+        <div class="video-workbench__settings-grid">
+          <div class="video-workbench__field">
+            <label for="jimeng-api-key">Jimeng API Key</label>
+            <input
+              id="jimeng-api-key"
+              v-model="jimengSettings.api_key"
+              type="password"
+              placeholder="Jimeng API key"
+            />
+          </div>
+          <div class="video-workbench__field">
+            <label for="jimeng-base-url">Jimeng Base URL</label>
+            <input
+              id="jimeng-base-url"
+              v-model="jimengSettings.base_url"
+              type="text"
+              placeholder="https://..."
+            />
+          </div>
+          <label class="video-workbench__checkbox" for="jimeng-enabled">
+            <input id="jimeng-enabled" v-model="jimengSettings.enabled" type="checkbox" />
+            Enable Jimeng
+          </label>
+          <button
+            type="button"
+            data-testid="save-jimeng-settings"
+            :disabled="isSavingJimengSettings"
+            @click="handleSaveJimengSettings"
+          >
+            {{ isSavingJimengSettings ? '保存中...' : 'Save Jimeng settings' }}
+          </button>
+        </div>
+        <p v-if="jimengProviderMessage" class="video-workbench__upload-message">
+          {{ jimengProviderMessage }}
+        </p>
       </section>
 
       <section v-if="selectedProject" class="video-workbench__asset-library" aria-label="素材库">
@@ -390,6 +425,14 @@
 
           <section class="video-workbench__video-generator" aria-label="Video Generator">
             <h4>Video Generator</h4>
+            <div class="video-workbench__field">
+              <label for="video-provider">Provider</label>
+              <select id="video-provider" v-model="selectedVideoProvider">
+                <option value="mock">Mock Provider</option>
+                <option value="jimeng">Jimeng Provider</option>
+              </select>
+            </div>
+            <p class="video-workbench__muted">Current Provider: {{ selectedVideoProviderLabel }}</p>
             <p class="video-workbench__muted">
               Current Keyframe: {{ selectedShot.keyframe_path || '未绑定' }}
             </p>
@@ -435,6 +478,7 @@ import {
   generateProjectImage,
   generateRenderPlan,
   generateVideo,
+  getJimengSettings,
   getNanoBananaProviderSettings,
   getProjectShots,
   getRenderPlan,
@@ -444,6 +488,7 @@ import {
   listProjects,
   parseStoryboard,
   reorderShots,
+  saveJimengSettings,
   saveNanoBananaProviderSettings,
   uploadProjectAsset
 } from '../services/videoWorkbenchApi'
@@ -468,8 +513,11 @@ const selectedUploadFile = ref(null)
 const isUploadingAsset = ref(false)
 const uploadMessage = ref('')
 const nanoBananaSettings = ref({ nano_banana_api_key: '', nano_banana_base_url: '' })
+const jimengSettings = ref({ api_key: '', base_url: '', enabled: true })
 const providerMessage = ref('')
+const jimengProviderMessage = ref('')
 const isSavingProviderSettings = ref(false)
+const isSavingJimengSettings = ref(false)
 const nanoBananaPrompt = ref('')
 const isGeneratingImage = ref(false)
 const generationMessage = ref('')
@@ -478,6 +526,7 @@ const isGeneratingKeyframe = ref(false)
 const keyframeMessage = ref('')
 const isGeneratingVideo = ref(false)
 const videoMessage = ref('')
+const selectedVideoProvider = ref('mock')
 const renderPlan = ref(null)
 const renderPlanMessage = ref('')
 const isGeneratingRenderPlan = ref(false)
@@ -539,6 +588,9 @@ const uploadAccept = computed(() => {
 
 const renderPlanItems = computed(() => renderPlan.value?.items || [])
 const timelineShots = computed(() => timeline.value?.shots || [])
+const selectedVideoProviderLabel = computed(() =>
+  selectedVideoProvider.value === 'jimeng' ? 'Jimeng Provider' : 'Mock Provider'
+)
 
 onMounted(() => {
   refreshProjects()
@@ -556,13 +608,39 @@ async function refreshProjects() {
 
 async function loadProviderSettings() {
   try {
-    const payload = await getNanoBananaProviderSettings()
+    const [payload, jimengPayload] = await Promise.all([
+      getNanoBananaProviderSettings(),
+      getJimengSettings()
+    ])
     nanoBananaSettings.value = {
       nano_banana_api_key: payload.settings?.nano_banana_api_key || '',
       nano_banana_base_url: payload.settings?.nano_banana_base_url || ''
     }
+    jimengSettings.value = {
+      api_key: jimengPayload.settings?.api_key || '',
+      base_url: jimengPayload.settings?.base_url || '',
+      enabled: jimengPayload.settings?.enabled !== false
+    }
   } catch (err) {
     providerMessage.value = err instanceof Error ? err.message : '加载 Provider Settings 失败'
+  }
+}
+
+async function handleSaveJimengSettings() {
+  jimengProviderMessage.value = ''
+  isSavingJimengSettings.value = true
+
+  try {
+    await saveJimengSettings({
+      api_key: jimengSettings.value.api_key.trim(),
+      base_url: jimengSettings.value.base_url.trim(),
+      enabled: jimengSettings.value.enabled
+    })
+    jimengProviderMessage.value = 'Jimeng settings saved.'
+  } catch (err) {
+    jimengProviderMessage.value = err instanceof Error ? err.message : '保存 Jimeng Settings 失败'
+  } finally {
+    isSavingJimengSettings.value = false
   }
 }
 
@@ -862,7 +940,11 @@ async function handleGenerateVideo() {
   isGeneratingVideo.value = true
 
   try {
-    const result = await generateVideo(selectedProject.value.id, selectedShot.value.shot_id)
+    const result = await generateVideo(
+      selectedProject.value.id,
+      selectedShot.value.shot_id,
+      selectedVideoProvider.value
+    )
     await loadProjectShots(selectedProject.value.id)
     assetPreviews.value.video = {
       url: result.video_path,
