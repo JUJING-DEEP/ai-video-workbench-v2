@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -17,6 +18,22 @@ from .video_provider import VideoProviderError, VideoProviderTimeoutError
 from .video_provider_registry import get_video_provider
 
 router = APIRouter(prefix="/api/video-workbench", tags=["video-workbench"])
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+ALLOWED_UPLOADS = {
+    "image": {
+        "extensions": {".png", ".jpg", ".jpeg", ".webp"},
+        "content_types": {"image/png", "image/jpeg", "image/webp"},
+    },
+    "keyframe": {
+        "extensions": {".png", ".jpg", ".jpeg", ".webp"},
+        "content_types": {"image/png", "image/jpeg", "image/webp"},
+    },
+    "video": {
+        "extensions": {".mp4", ".mov", ".webm"},
+        "content_types": {"video/mp4", "video/quicktime", "video/webm"},
+    },
+}
 
 
 class ParseRequest(BaseModel):
@@ -116,6 +133,38 @@ def _public_provider_settings(
     return payload
 
 
+def _validate_http_url(value: str, label: str):
+    if not value:
+        return
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail=f"{label} must be a valid http(s) URL.")
+
+
+def _validate_asset_path(path: str):
+    parsed = urlparse(path)
+    if parsed.scheme:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise HTTPException(status_code=400, detail="Asset path must be a local path or http(s) URL.")
+        path_parts = Path(parsed.path).parts
+    else:
+        path_parts = Path(path).parts
+    if ".." in path_parts:
+        raise HTTPException(status_code=400, detail="Asset path must not contain path traversal.")
+
+
+def _validate_upload_filename(filename: str):
+    if not filename or filename != Path(filename).name or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Upload filename is invalid.")
+
+
+def _validate_upload_type(asset_type: str, filename: str, content_type: str):
+    rules = ALLOWED_UPLOADS[asset_type]
+    extension = Path(filename).suffix.lower()
+    if extension not in rules["extensions"] or content_type not in rules["content_types"]:
+        raise HTTPException(status_code=400, detail="Upload file type is not allowed for asset_type.")
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok"}
@@ -213,6 +262,7 @@ async def bind_shot_asset(
         )
     if not path:
         raise HTTPException(status_code=400, detail="Asset path is required.")
+    _validate_asset_path(path)
 
     try:
         repository.bind_asset(project_id, shot_id, asset_type, path)
@@ -261,6 +311,7 @@ async def create_project_asset(
         raise HTTPException(status_code=400, detail="Asset name is required.")
     if not path:
         raise HTTPException(status_code=400, detail="Asset path is required.")
+    _validate_asset_path(path)
 
     try:
         asset = repository.create_asset(project_id, asset_type, name, path, source, prompt)
@@ -292,19 +343,21 @@ async def save_nano_banana_provider_settings(
     data: ProviderSettingsRequest,
     repository: VideoWorkbenchRepository = Depends(get_repository),
 ):
+    base_url = data.nano_banana_base_url.strip()
+    _validate_http_url(base_url, "Nano Banana base URL")
     settings = repository.save_provider_settings(
         "nano_banana",
         data.nano_banana_api_key.strip(),
-        data.nano_banana_base_url.strip(),
+        base_url,
     )
     return jsonable_encoder(
         {
-            "settings": {
-                "provider": "nano_banana",
-                "nano_banana_api_key": settings["api_key"],
-                "nano_banana_base_url": settings["base_url"],
-                "updated_at": settings["updated_at"],
-            }
+            "settings": _public_provider_settings(
+                "nano_banana",
+                settings,
+                ("api_key",),
+                ("base_url",),
+            )
         }
     )
 
@@ -331,31 +384,29 @@ async def save_jimeng_provider_settings(
     data: JimengSettingsRequest,
     repository: VideoWorkbenchRepository = Depends(get_repository),
 ):
+    base_url = data.base_url.strip()
+    endpoint = data.endpoint.strip()
+    _validate_http_url(base_url, "Jimeng base URL")
+    _validate_http_url(endpoint, "Jimeng endpoint URL")
     settings = repository.save_provider_settings(
         "jimeng",
         data.api_key.strip(),
-        data.base_url.strip(),
+        base_url,
         data.enabled,
         data.access_key.strip(),
         data.secret_key.strip(),
         data.region.strip(),
-        data.endpoint.strip(),
+        endpoint,
         data.model.strip(),
     )
     return jsonable_encoder(
         {
-            "settings": {
-                "provider": "jimeng",
-                "api_key": settings["api_key"],
-                "base_url": settings["base_url"],
-                "access_key": settings.get("access_key", ""),
-                "secret_key": settings.get("secret_key", ""),
-                "region": settings.get("region", ""),
-                "endpoint": settings.get("endpoint", ""),
-                "model": settings.get("model", ""),
-                "enabled": bool(settings.get("enabled", True)),
-                "updated_at": settings["updated_at"],
-            }
+            "settings": _public_provider_settings(
+                "jimeng",
+                settings,
+                ("api_key", "access_key", "secret_key"),
+                ("base_url", "region", "endpoint", "model"),
+            )
         }
     )
 
@@ -419,6 +470,11 @@ async def poll_video_generation_job(
         job = repository.get_video_generation_job(job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if job["status"] in {"completed", "failed", "timeout"}:
+        raise HTTPException(status_code=409, detail="Cannot poll a terminal video job.")
+    if not job["submit_id"]:
+        raise HTTPException(status_code=409, detail="Cannot poll a video job without submit_id.")
 
     settings = repository.get_provider_settings("jimeng")
     _validate_jimeng_rest_settings(settings)
@@ -730,11 +786,19 @@ async def upload_project_asset(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    filename = Path(file.filename or "upload").name
+    original_filename = file.filename or ""
+    _validate_upload_filename(original_filename)
+    filename = Path(original_filename).name
+    _validate_upload_type(normalized_type, filename, file.content_type or "")
     upload_dir = Path("data") / "uploads" / str(project_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
     output_path = upload_dir / filename
-    output_path.write_bytes(await file.read())
+    if output_path.exists():
+        raise HTTPException(status_code=409, detail="Upload filename already exists.")
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Upload file is too large.")
+    output_path.write_bytes(content)
 
     return jsonable_encoder(
         {
