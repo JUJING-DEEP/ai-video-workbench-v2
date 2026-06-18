@@ -451,6 +451,46 @@
             <div v-if="assetPreviews.video" class="video-workbench__asset-preview">
               <video :src="assetPreviews.video.url" controls aria-label="视频预览" />
             </div>
+
+            <section class="video-workbench__video-job" aria-label="Jimeng REST Job">
+              <h5>Jimeng REST Job</h5>
+              <p class="video-workbench__muted">
+                Job status: {{ videoJob?.status || 'not submitted' }}
+              </p>
+              <div class="video-workbench__render-actions">
+                <button
+                  type="button"
+                  data-testid="submit-video-job"
+                  :disabled="
+                    isSubmittingVideoJob ||
+                    !selectedProject ||
+                    !selectedShot ||
+                    !selectedShot.keyframe_path
+                  "
+                  @click="handleSubmitVideoJob"
+                >
+                  {{ isSubmittingVideoJob ? 'Submitting Jimeng Job...' : 'Submit Jimeng Job' }}
+                </button>
+                <button
+                  type="button"
+                  data-testid="poll-video-job"
+                  :disabled="isPollingVideoJob || !videoJob"
+                  @click="handlePollVideoJob"
+                >
+                  {{ isPollingVideoJob ? 'Polling Job...' : 'Poll Job' }}
+                </button>
+              </div>
+              <p v-if="videoJobMessage" class="video-workbench__upload-message">
+                {{ videoJobMessage }}
+              </p>
+              <div v-if="videoJob?.output_path" class="video-workbench__asset-preview">
+                <video
+                  :src="videoJob.output_path"
+                  controls
+                  aria-label="Jimeng job video preview"
+                />
+              </div>
+            </section>
           </section>
         </aside>
 
@@ -473,11 +513,13 @@ import {
   bindShotAsset,
   createProjectAsset,
   createProject,
+  createVideoJob,
   exportRenderPlan,
   generateKeyframe,
   generateProjectImage,
   generateRenderPlan,
   generateVideo,
+  getVideoJob,
   getJimengSettings,
   getNanoBananaProviderSettings,
   getProjectShots,
@@ -487,6 +529,7 @@ import {
   listProjectAssets,
   listProjects,
   parseStoryboard,
+  pollVideoJob,
   reorderShots,
   saveJimengSettings,
   saveNanoBananaProviderSettings,
@@ -527,6 +570,10 @@ const keyframeMessage = ref('')
 const isGeneratingVideo = ref(false)
 const videoMessage = ref('')
 const selectedVideoProvider = ref('mock')
+const videoJob = ref(null)
+const videoJobMessage = ref('')
+const isSubmittingVideoJob = ref(false)
+const isPollingVideoJob = ref(false)
 const renderPlan = ref(null)
 const renderPlanMessage = ref('')
 const isGeneratingRenderPlan = ref(false)
@@ -700,6 +747,8 @@ async function handleSelectProject() {
     projectAssets.value = []
     renderPlan.value = null
     timeline.value = { project_id: null, shots: [] }
+    videoJob.value = null
+    videoJobMessage.value = ''
     selectedShot.value = null
     validationReport.value = { render_ready: false, issues: [] }
     return
@@ -762,6 +811,8 @@ async function handleParse() {
 
 function handleSelectShot(shot) {
   selectedShot.value = shot
+  videoJob.value = null
+  videoJobMessage.value = ''
   syncAssetPaths()
 }
 
@@ -955,6 +1006,63 @@ async function handleGenerateVideo() {
     videoMessage.value = err instanceof Error ? err.message : '视频生成失败'
   } finally {
     isGeneratingVideo.value = false
+  }
+}
+
+async function handleSubmitVideoJob() {
+  videoJobMessage.value = ''
+
+  if (!selectedProject.value || !selectedShot.value) {
+    videoJobMessage.value = '请先选择项目和镜头。'
+    return
+  }
+
+  if (!selectedShot.value.keyframe_path) {
+    videoJobMessage.value = 'Please generate or bind a keyframe first.'
+    return
+  }
+
+  isSubmittingVideoJob.value = true
+
+  try {
+    const payload = await createVideoJob(selectedProject.value.id, selectedShot.value.shot_id)
+    videoJob.value = payload.job
+    videoJobMessage.value = 'Jimeng job submitted.'
+  } catch (err) {
+    videoJobMessage.value = err instanceof Error ? err.message : '提交 Jimeng Job 失败'
+  } finally {
+    isSubmittingVideoJob.value = false
+  }
+}
+
+async function handlePollVideoJob() {
+  videoJobMessage.value = ''
+
+  if (!videoJob.value) {
+    videoJobMessage.value = '请先提交 Jimeng Job。'
+    return
+  }
+
+  isPollingVideoJob.value = true
+
+  try {
+    const payload = await pollVideoJob(videoJob.value.id)
+    videoJob.value = payload.job
+
+    if (videoJob.value.status === 'completed') {
+      await loadProjectShots(videoJob.value.project_id)
+      assetPreviews.value.video = {
+        url: videoJob.value.output_path,
+        kind: 'video'
+      }
+      videoJobMessage.value = 'Jimeng job completed.'
+    } else if (videoJob.value.status === 'failed' || videoJob.value.status === 'timeout') {
+      videoJobMessage.value = videoJob.value.error_message || `Jimeng job ${videoJob.value.status}.`
+    }
+  } catch (err) {
+    videoJobMessage.value = err instanceof Error ? err.message : '查询 Jimeng Job 失败'
+  } finally {
+    isPollingVideoJob.value = false
   }
 }
 

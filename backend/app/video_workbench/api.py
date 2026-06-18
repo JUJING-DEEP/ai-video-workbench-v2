@@ -11,8 +11,9 @@ from pydantic import BaseModel
 
 from .nano_banana import NanoBananaClient, NanoBananaError
 from .parser import parse_storyboard_text
+from .providers.jimeng_rest_provider import JimengRestProvider
 from .repository import VideoWorkbenchRepository
-from .video_provider import VideoProviderError
+from .video_provider import VideoProviderError, VideoProviderTimeoutError
 from .video_provider_registry import get_video_provider
 
 router = APIRouter(prefix="/api/video-workbench", tags=["video-workbench"])
@@ -54,6 +55,11 @@ class ProviderSettingsRequest(BaseModel):
 class JimengSettingsRequest(BaseModel):
     api_key: str = ""
     base_url: str = ""
+    access_key: str = ""
+    secret_key: str = ""
+    region: str = ""
+    endpoint: str = ""
+    model: str = ""
     enabled: bool = True
 
 
@@ -82,6 +88,10 @@ def get_repository() -> VideoWorkbenchRepository:
 
 def get_nano_banana_client() -> NanoBananaClient:
     return NanoBananaClient()
+
+
+def get_jimeng_rest_provider() -> JimengRestProvider:
+    return JimengRestProvider()
 
 
 @router.get("/health")
@@ -288,6 +298,11 @@ async def get_jimeng_provider_settings(
                 "provider": "jimeng",
                 "api_key": settings["api_key"],
                 "base_url": settings["base_url"],
+                "access_key": settings.get("access_key", ""),
+                "secret_key": settings.get("secret_key", ""),
+                "region": settings.get("region", ""),
+                "endpoint": settings.get("endpoint", ""),
+                "model": settings.get("model", ""),
                 "enabled": bool(settings.get("enabled", True)),
                 "updated_at": settings["updated_at"],
             }
@@ -305,6 +320,11 @@ async def save_jimeng_provider_settings(
         data.api_key.strip(),
         data.base_url.strip(),
         data.enabled,
+        data.access_key.strip(),
+        data.secret_key.strip(),
+        data.region.strip(),
+        data.endpoint.strip(),
+        data.model.strip(),
     )
     return jsonable_encoder(
         {
@@ -312,11 +332,126 @@ async def save_jimeng_provider_settings(
                 "provider": "jimeng",
                 "api_key": settings["api_key"],
                 "base_url": settings["base_url"],
+                "access_key": settings.get("access_key", ""),
+                "secret_key": settings.get("secret_key", ""),
+                "region": settings.get("region", ""),
+                "endpoint": settings.get("endpoint", ""),
+                "model": settings.get("model", ""),
                 "enabled": bool(settings.get("enabled", True)),
                 "updated_at": settings["updated_at"],
             }
         }
     )
+
+
+@router.post("/projects/{project_id}/shots/{shot_id}/video-jobs")
+async def create_video_generation_job(
+    project_id: int,
+    shot_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+    provider: JimengRestProvider = Depends(get_jimeng_rest_provider),
+):
+    try:
+        repository.get_project(project_id)
+        shots = repository.get_project_shots(project_id)
+        shot = next(shot for shot in shots if shot.shot_id == shot_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StopIteration as exc:
+        raise HTTPException(status_code=404, detail=f"Shot not found: {project_id}/{shot_id}") from exc
+
+    if not shot.keyframe_path.strip():
+        raise HTTPException(status_code=400, detail="Shot must have a keyframe before video generation.")
+
+    settings = repository.get_provider_settings("jimeng")
+    _validate_jimeng_rest_settings(settings)
+
+    job = repository.create_video_generation_job(project_id, shot_id, "jimeng")
+    try:
+        submit_id = provider.submit_job(shot.keyframe_path, settings)
+    except VideoProviderTimeoutError as exc:
+        repository.update_video_generation_job(job["id"], status="timeout", error_message=str(exc))
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except VideoProviderError as exc:
+        repository.update_video_generation_job(job["id"], status="failed", error_message=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    job = repository.update_video_generation_job(job["id"], status="submitted", submit_id=submit_id)
+    return jsonable_encoder({"job": job})
+
+
+@router.get("/video-jobs/{job_id}")
+async def get_video_generation_job(
+    job_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        job = repository.get_video_generation_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder({"job": job})
+
+
+@router.post("/video-jobs/{job_id}/poll")
+async def poll_video_generation_job(
+    job_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+    provider: JimengRestProvider = Depends(get_jimeng_rest_provider),
+):
+    try:
+        job = repository.get_video_generation_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    settings = repository.get_provider_settings("jimeng")
+    _validate_jimeng_rest_settings(settings)
+
+    try:
+        result = provider.get_result(job["submit_id"], settings)
+    except VideoProviderTimeoutError as exc:
+        job = repository.update_video_generation_job(job_id, status="timeout", error_message=str(exc))
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except VideoProviderError as exc:
+        job = repository.update_video_generation_job(job_id, status="failed", error_message=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if result.status == "processing":
+        job = repository.update_video_generation_job(job_id, status="processing")
+        return jsonable_encoder({"job": job})
+
+    if result.status == "failed":
+        job = repository.update_video_generation_job(
+            job_id,
+            status="failed",
+            result_url=result.result_url,
+            error_message=result.error_message,
+        )
+        return jsonable_encoder({"job": job})
+
+    video_bytes = provider.download_video(result.result_url, settings)
+    output_dir = Path("data") / "uploads" / str(job["project_id"]) / "generated" / "videos"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"jimeng-rest-job-{job_id}.mp4"
+    output_path = output_dir / filename
+    output_path.write_bytes(video_bytes)
+
+    asset = repository.create_asset(
+        job["project_id"],
+        asset_type="video",
+        name=filename,
+        path=output_path.as_posix(),
+        source="jimeng",
+    )
+    repository.bind_asset(job["project_id"], job["shot_id"], "video", asset["path"])
+    job = repository.update_video_generation_job(
+        job_id,
+        status="completed",
+        result_url=result.result_url,
+        output_path=asset["path"],
+        error_message="",
+    )
+    return jsonable_encoder({"job": job})
 
 
 @router.post("/projects/{project_id}/generate-image")
@@ -592,3 +727,12 @@ async def upload_project_asset(
             "asset_type": normalized_type,
         }
     )
+
+
+def _validate_jimeng_rest_settings(settings):
+    if not settings.get("enabled", True):
+        raise HTTPException(status_code=403, detail="Jimeng provider is disabled.")
+    if not settings.get("access_key") or not settings.get("secret_key"):
+        raise HTTPException(status_code=400, detail="Jimeng REST credentials are required.")
+    if not settings.get("endpoint") or not settings.get("model"):
+        raise HTTPException(status_code=400, detail="Jimeng REST endpoint and model are required.")

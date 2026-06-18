@@ -6,6 +6,7 @@ import VideoWorkbench from '../VideoWorkbench.vue'
 import {
   bindShotAsset,
   createProjectAsset,
+  createVideoJob,
   generateKeyframe,
   generateProjectImage,
   generateVideo,
@@ -14,6 +15,7 @@ import {
   getTimeline,
   getJimengSettings,
   getNanoBananaProviderSettings,
+  pollVideoJob,
   getRenderPlan,
   getProjectShots,
   listProjectAssets,
@@ -28,6 +30,19 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   bindShotAsset: vi.fn().mockResolvedValue({ shot: {} }),
   createProject: vi.fn(),
   createProjectAsset: vi.fn().mockResolvedValue({ asset: {} }),
+  createVideoJob: vi.fn().mockResolvedValue({
+    job: {
+      id: 501,
+      project_id: 7,
+      shot_id: 1,
+      provider: 'jimeng',
+      status: 'submitted',
+      submit_id: 'fake-submit-501',
+      result_url: '',
+      output_path: '',
+      error_message: ''
+    }
+  }),
   generateKeyframe: vi.fn().mockResolvedValue({
     asset_id: 31,
     shot_id: 1,
@@ -175,6 +190,19 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
     ]
   }),
   parseStoryboard: vi.fn(),
+  pollVideoJob: vi.fn().mockResolvedValue({
+    job: {
+      id: 501,
+      project_id: 7,
+      shot_id: 1,
+      provider: 'jimeng',
+      status: 'completed',
+      submit_id: 'fake-submit-501',
+      result_url: 'https://jimeng.example/results/fake-submit-501.mp4',
+      output_path: 'data/uploads/7/generated/videos/jimeng-rest-job-501.mp4',
+      error_message: ''
+    }
+  }),
   reorderShots: vi.fn().mockResolvedValue({ project_id: 7, shot_ids: [2, 1, 3] }),
   saveJimengSettings: vi.fn().mockResolvedValue({
     settings: {
@@ -793,6 +821,185 @@ describe('VideoWorkbench', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Current Provider: Mock Provider')
+  })
+
+
+  it('renders video job controls', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Jimeng REST Job')
+    expect(wrapper.find('[data-testid="submit-video-job"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="poll-video-job"]').exists()).toBe(true)
+  })
+
+  it('disables submit job button without a keyframe', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="submit-video-job"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('calls createVideoJob for the selected shot', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="submit-video-job"]').trigger('click')
+    await flushPromises()
+
+    expect(createVideoJob).toHaveBeenCalledWith(7, 1)
+  })
+
+  it('shows submitted job status', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+    await wrapper.find('[data-testid="submit-video-job"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Job status: submitted')
+  })
+
+  it('calls pollVideoJob', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+    await wrapper.find('[data-testid="submit-video-job"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="poll-video-job"]').trigger('click')
+    await flushPromises()
+
+    expect(pollVideoJob).toHaveBeenCalledWith(501)
+  })
+
+  it('shows completed video job preview', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+    await wrapper.find('[data-testid="submit-video-job"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="poll-video-job"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Job status: completed')
+    expect(wrapper.find('video[aria-label="Jimeng job video preview"]').attributes('src')).toBe(
+      'data/uploads/7/generated/videos/jimeng-rest-job-501.mp4'
+    )
+  })
+
+  it('shows video job provider errors', async () => {
+    pollVideoJob.mockRejectedValueOnce(new Error('Jimeng provider error.'))
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+    await wrapper.find('[data-testid="submit-video-job"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="poll-video-job"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Jimeng provider error.')
   })
 
   it('renders the render pipeline panel', async () => {
