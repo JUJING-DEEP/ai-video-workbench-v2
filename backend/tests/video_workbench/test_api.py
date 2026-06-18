@@ -225,6 +225,25 @@ def test_bind_shot_asset_requires_path(client):
     assert "path" in response.json()["detail"].lower()
 
 
+def test_bind_shot_asset_rejects_path_traversal(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Unsafe Bound Path"},
+    ).json()["project"]["id"]
+    client.post(
+        f"/api/video-workbench/projects/{project_id}/storyboard",
+        json={"text": STORYBOARD_TEXT},
+    )
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/assets",
+        json={"asset_type": "image", "path": "../outside.png"},
+    )
+
+    assert response.status_code == 400
+    assert "path" in response.json()["detail"].lower()
+
+
 def test_create_project_asset_success(client):
     project_id = client.post(
         "/api/video-workbench/projects",
@@ -351,6 +370,76 @@ def test_upload_project_asset_rejects_unknown_asset_type(client):
     assert "asset_type" in response.json()["detail"]
 
 
+def test_upload_project_asset_rejects_unsafe_filename(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Unsafe Upload Name"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/upload",
+        data={"asset_type": "image"},
+        files={"file": ("../outside.png", b"image-bytes", "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert "filename" in response.json()["detail"].lower()
+
+
+def test_upload_project_asset_rejects_invalid_mime_for_asset_type(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Invalid Upload MIME"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/upload",
+        data={"asset_type": "image"},
+        files={"file": ("payload.txt", b"not-an-image", "text/plain")},
+    )
+
+    assert response.status_code == 400
+    assert "file type" in response.json()["detail"].lower()
+
+
+def test_upload_project_asset_rejects_oversized_file(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Oversized Upload"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/upload",
+        data={"asset_type": "image"},
+        files={"file": ("large.png", b"0" * (26 * 1024 * 1024), "image/png")},
+    )
+
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"].lower()
+
+
+def test_upload_project_asset_rejects_existing_filename(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Duplicate Upload"},
+    ).json()["project"]["id"]
+
+    first_response = client.post(
+        f"/api/video-workbench/projects/{project_id}/upload",
+        data={"asset_type": "image"},
+        files={"file": ("shot-001.png", b"first", "image/png")},
+    )
+    second_response = client.post(
+        f"/api/video-workbench/projects/{project_id}/upload",
+        data={"asset_type": "image"},
+        files={"file": ("shot-001.png", b"second", "image/png")},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert Path(first_response.json()["path"]).read_bytes() == b"first"
+
+
 def test_save_and_get_nano_banana_provider_settings(client):
     save_response = client.put(
         "/api/video-workbench/provider-settings/nano-banana",
@@ -363,8 +452,9 @@ def test_save_and_get_nano_banana_provider_settings(client):
     assert save_response.status_code == 200
     settings = save_response.json()["settings"]
     assert settings["provider"] == "nano_banana"
-    assert settings["nano_banana_api_key"] == "test-key"
-    assert settings["nano_banana_base_url"] == "https://nano.example/generate"
+    assert settings["configured"] is True
+    assert settings["enabled"] is True
+    assert settings["base_url"] == "https://nano.example/generate"
 
     get_response = client.get("/api/video-workbench/provider-settings/nano-banana")
 
@@ -374,6 +464,40 @@ def test_save_and_get_nano_banana_provider_settings(client):
     assert public_settings["configured"] is True
     assert public_settings["enabled"] is True
     assert public_settings["base_url"] == "https://nano.example/generate"
+
+
+def test_provider_settings_put_does_not_return_credentials(client):
+    nano_response = client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "secret-nano-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+    jimeng_response = client.put(
+        "/api/video-workbench/provider-settings/jimeng",
+        json={
+            "api_key": "secret-jimeng-key",
+            "base_url": "https://jimeng.example/generate",
+            "access_key": "secret-access-key",
+            "secret_key": "secret-secret-key",
+            "endpoint": "https://open.volcengineapi.com",
+            "model": "jimeng-v3",
+        },
+    )
+
+    for response in (nano_response, jimeng_response):
+        assert response.status_code == 200
+        body = json.dumps(response.json())
+        assert "secret-nano-key" not in body
+        assert "secret-jimeng-key" not in body
+        assert "secret-access-key" not in body
+        assert "secret-secret-key" not in body
+        settings = response.json()["settings"]
+        assert "api_key" not in settings
+        assert "nano_banana_api_key" not in settings
+        assert "access_key" not in settings
+        assert "secret_key" not in settings
 
 
 def test_provider_settings_get_does_not_return_api_key(client):
@@ -428,6 +552,54 @@ def test_provider_settings_reports_configured(client):
     assert configured_settings["enabled"] is True
 
 
+def test_provider_settings_rejects_invalid_base_url(client):
+    response = client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "test-key",
+            "nano_banana_base_url": "file:///etc/passwd",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "url" in response.json()["detail"].lower()
+
+
+def test_jimeng_settings_rejects_invalid_endpoint_url(client):
+    response = client.put(
+        "/api/video-workbench/provider-settings/jimeng",
+        json={
+            "access_key": "ak-test",
+            "secret_key": "sk-test",
+            "endpoint": "javascript:alert(1)",
+            "model": "jimeng-v3",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "url" in response.json()["detail"].lower()
+
+
+def test_jimeng_rest_settings_reports_non_secret_fields(client):
+    response = _save_jimeng_rest_settings(
+        client,
+        region="cn-north-1",
+        endpoint="https://open.volcengineapi.com",
+        model="jimeng-v3",
+    )
+    settings = response.json()["settings"]
+
+    assert response.status_code == 200
+    assert settings["provider"] == "jimeng"
+    assert settings["configured"] is True
+    assert settings["enabled"] is True
+    assert settings["region"] == "cn-north-1"
+    assert settings["endpoint"] == "https://open.volcengineapi.com"
+    assert settings["model"] == "jimeng-v3"
+    assert "access_key" not in settings
+    assert "secret_key" not in settings
+
+
 def test_create_project_asset_persists_source_and_prompt(client):
     project_id = client.post(
         "/api/video-workbench/projects",
@@ -449,6 +621,21 @@ def test_create_project_asset_persists_source_and_prompt(client):
     asset = response.json()["asset"]
     assert asset["source"] == "nano_banana"
     assert asset["prompt"] == "Draw a tired stickman."
+
+
+def test_create_project_asset_rejects_path_traversal(client):
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Unsafe Asset Path"},
+    ).json()["project"]["id"]
+
+    response = client.post(
+        f"/api/video-workbench/projects/{project_id}/assets",
+        json={"asset_type": "image", "name": "Unsafe", "path": "../outside.png"},
+    )
+
+    assert response.status_code == 400
+    assert "path" in response.json()["detail"].lower()
 
 
 def test_generate_image_creates_asset_from_nano_banana(client):
@@ -860,7 +1047,7 @@ def test_jimeng_settings_save(client):
     assert response.status_code == 200
     settings = response.json()["settings"]
     assert settings["provider"] == "jimeng"
-    assert settings["api_key"] == "test-key"
+    assert settings["configured"] is True
     assert settings["base_url"] == "https://jimeng.example/generate"
     assert settings["enabled"] is True
 
@@ -1272,6 +1459,45 @@ def test_create_video_job_success(client):
     assert job["submit_id"]
 
 
+def test_video_workbench_smoke_project_shot_keyframe_video_render_plan(client):
+    client.app.dependency_overrides[get_nano_banana_client] = lambda: SuccessfulNanoBananaClient()
+    client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "test-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+
+    project_id = client.post(
+        "/api/video-workbench/projects",
+        json={"title": "Smoke Chain"},
+    ).json()["project"]["id"]
+    storyboard = client.post(
+        f"/api/video-workbench/projects/{project_id}/storyboard",
+        json={"text": STORYBOARD_TEXT},
+    )
+    keyframe = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-keyframe",
+        json={"prompt": "Draw a keyframe."},
+    )
+    video = client.post(
+        f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
+        json={"provider": "mock"},
+    )
+    render_plan = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+
+    assert storyboard.status_code == 200
+    assert storyboard.json()["shots"][0]["shot_id"] == 1
+    assert keyframe.status_code == 200
+    assert keyframe.json()["asset_type"] == "keyframe"
+    assert video.status_code == 200
+    assert video.json()["asset_type"] == "video"
+    assert render_plan.status_code == 200
+    assert render_plan.json()["items"][0]["shot_id"] == 1
+    assert render_plan.json()["items"][0]["video_path"] == video.json()["video_path"]
+
+
 def test_create_video_job_without_keyframe(client):
     _save_jimeng_rest_settings(client)
     project_id = _create_project_with_shot(client, "REST Video Job Missing Keyframe")
@@ -1357,6 +1583,21 @@ def test_poll_video_job_completed_binds_video(client):
     assert response.status_code == 200
     shot = client.get(f"/api/video-workbench/projects/{project_id}/shots").json()["shots"][0]
     assert shot["video_path"] == response.json()["job"]["output_path"]
+
+
+def test_poll_video_job_rejects_terminal_status(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "Terminal REST Video Job")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    first_poll = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert first_poll.status_code == 200
+    assert first_poll.json()["job"]["status"] == "completed"
+    assert response.status_code == 409
+    assert "terminal" in response.json()["detail"].lower()
 
 
 def test_poll_video_job_failed(client):
