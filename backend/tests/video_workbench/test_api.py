@@ -1173,3 +1173,185 @@ def test_generate_video_with_jimeng(client):
     assert Path(payload["video_path"]).read_bytes().startswith(b"jimeng-video")
     assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
     assert assets[0]["source"] == "jimeng"
+
+
+def _save_jimeng_rest_settings(
+    client,
+    access_key="ak-test",
+    secret_key="sk-test",
+    region="cn-north-1",
+    endpoint="https://open.volcengineapi.com",
+    model="jimeng-v3",
+    enabled=True,
+):
+    return client.put(
+        "/api/video-workbench/provider-settings/jimeng",
+        json={
+            "access_key": access_key,
+            "secret_key": secret_key,
+            "region": region,
+            "endpoint": endpoint,
+            "model": model,
+            "enabled": enabled,
+        },
+    )
+
+
+def test_create_video_job_success(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "REST Video Job")
+    _bind_keyframe(client, project_id)
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
+
+    assert response.status_code == 200
+    job = response.json()["job"]
+    assert job["project_id"] == project_id
+    assert job["shot_id"] == 1
+    assert job["provider"] == "jimeng"
+    assert job["status"] == "submitted"
+    assert job["submit_id"]
+
+
+def test_create_video_job_without_keyframe(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "REST Video Job Missing Keyframe")
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
+
+    assert response.status_code == 400
+    assert "keyframe" in response.json()["detail"].lower()
+
+
+def test_create_video_job_disabled_provider(client):
+    _save_jimeng_rest_settings(client, enabled=False)
+    project_id = _create_project_with_shot(client, "REST Video Job Disabled")
+    _bind_keyframe(client, project_id)
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
+
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"].lower()
+
+
+def test_create_video_job_missing_credentials(client):
+    _save_jimeng_rest_settings(client, access_key="", secret_key="")
+    project_id = _create_project_with_shot(client, "REST Video Job Missing Credentials")
+    _bind_keyframe(client, project_id)
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
+
+    assert response.status_code == 400
+    assert "credentials" in response.json()["detail"].lower()
+
+
+def test_get_video_job(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "Get REST Video Job")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.get(f"/api/video-workbench/video-jobs/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["job"]["id"] == created["id"]
+    assert response.json()["job"]["status"] == "submitted"
+
+
+def test_poll_video_job_processing(client):
+    _save_jimeng_rest_settings(client, model="processing")
+    project_id = _create_project_with_shot(client, "Processing REST Video Job")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert response.status_code == 200
+    assert response.json()["job"]["status"] == "processing"
+
+
+def test_poll_video_job_completed_creates_asset(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "Completed REST Video Asset")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert response.status_code == 200
+    job = response.json()["job"]
+    assert job["status"] == "completed"
+    assert job["output_path"].startswith(f"data/uploads/{project_id}/generated/videos/")
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assert assets[0]["asset_type"] == "video"
+    assert assets[0]["source"] == "jimeng"
+
+
+def test_poll_video_job_completed_binds_video(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "Completed REST Video Bind")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert response.status_code == 200
+    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots").json()["shots"][0]
+    assert shot["video_path"] == response.json()["job"]["output_path"]
+
+
+def test_poll_video_job_failed(client):
+    _save_jimeng_rest_settings(client, model="failed")
+    project_id = _create_project_with_shot(client, "Failed REST Video Job")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert response.status_code == 200
+    assert response.json()["job"]["status"] == "failed"
+    assert "failed" in response.json()["job"]["error_message"].lower()
+
+
+def test_poll_video_job_provider_error(client):
+    _save_jimeng_rest_settings(client, model="provider-error")
+    project_id = _create_project_with_shot(client, "Provider Error REST Video Job")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert response.status_code == 502
+    job = client.get(f"/api/video-workbench/video-jobs/{created['id']}").json()["job"]
+    assert job["status"] == "failed"
+    assert "provider" in job["error_message"].lower()
+
+
+def test_create_video_job_unknown_project(client):
+    response = client.post("/api/video-workbench/projects/999/shots/1/video-jobs")
+
+    assert response.status_code == 404
+    assert "project" in response.json()["detail"].lower()
+
+
+def test_create_video_job_unknown_shot(client):
+    _save_jimeng_rest_settings(client)
+    project_id = _create_project_with_shot(client, "REST Video Job Unknown Shot")
+
+    response = client.post(f"/api/video-workbench/projects/{project_id}/shots/999/video-jobs")
+
+    assert response.status_code == 404
+    assert "shot" in response.json()["detail"].lower()
+
+
+def test_poll_video_job_provider_timeout(client):
+    _save_jimeng_rest_settings(client, model="timeout")
+    project_id = _create_project_with_shot(client, "Timeout REST Video Job")
+    _bind_keyframe(client, project_id)
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+
+    response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
+
+    assert response.status_code == 504
+    job = client.get(f"/api/video-workbench/video-jobs/{created['id']}").json()["job"]
+    assert job["status"] == "timeout"

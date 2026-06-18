@@ -93,11 +93,39 @@ class VideoWorkbenchRepository:
                     api_key TEXT DEFAULT '',
                     base_url TEXT DEFAULT '',
                     enabled INTEGER DEFAULT 1,
+                    access_key TEXT DEFAULT '',
+                    secret_key TEXT DEFAULT '',
+                    region TEXT DEFAULT '',
+                    endpoint TEXT DEFAULT '',
+                    model TEXT DEFAULT '',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
             self._ensure_column(conn, "provider_settings", "enabled", "INTEGER DEFAULT 1")
+            self._ensure_column(conn, "provider_settings", "access_key", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "provider_settings", "secret_key", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "provider_settings", "region", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "provider_settings", "endpoint", "TEXT DEFAULT ''")
+            self._ensure_column(conn, "provider_settings", "model", "TEXT DEFAULT ''")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS video_generation_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL,
+                    shot_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    submit_id TEXT DEFAULT '',
+                    result_url TEXT DEFAULT '',
+                    output_path TEXT DEFAULT '',
+                    error_message TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(project_id) REFERENCES video_projects(id) ON DELETE CASCADE
+                )
+                """
+            )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS render_plans (
@@ -261,19 +289,48 @@ class VideoWorkbenchRepository:
 
         return [dict(row) for row in rows]
 
-    def save_provider_settings(self, provider: str, api_key: str, base_url: str, enabled: bool = True):
+    def save_provider_settings(
+        self,
+        provider: str,
+        api_key: str = "",
+        base_url: str = "",
+        enabled: bool = True,
+        access_key: str = "",
+        secret_key: str = "",
+        region: str = "",
+        endpoint: str = "",
+        model: str = "",
+    ):
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO provider_settings (provider, api_key, base_url, enabled, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO provider_settings (
+                    provider, api_key, base_url, enabled, access_key,
+                    secret_key, region, endpoint, model, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(provider) DO UPDATE SET
                     api_key = excluded.api_key,
                     base_url = excluded.base_url,
                     enabled = excluded.enabled,
+                    access_key = excluded.access_key,
+                    secret_key = excluded.secret_key,
+                    region = excluded.region,
+                    endpoint = excluded.endpoint,
+                    model = excluded.model,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (provider, api_key, base_url, 1 if enabled else 0),
+                (
+                    provider,
+                    api_key,
+                    base_url,
+                    1 if enabled else 0,
+                    access_key,
+                    secret_key,
+                    region,
+                    endpoint,
+                    model,
+                ),
             )
 
         return self.get_provider_settings(provider)
@@ -291,12 +348,68 @@ class VideoWorkbenchRepository:
                 "api_key": "",
                 "base_url": "",
                 "enabled": True,
+                "access_key": "",
+                "secret_key": "",
+                "region": "",
+                "endpoint": "",
+                "model": "",
                 "updated_at": "",
             }
 
         settings = dict(row)
         settings["enabled"] = bool(settings.get("enabled", True))
         return settings
+
+    def create_video_generation_job(self, project_id: int, shot_id: int, provider: str):
+        self.get_project(project_id)
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO video_generation_jobs (project_id, shot_id, provider, status)
+                VALUES (?, ?, ?, ?)
+                """,
+                (project_id, shot_id, provider, "pending"),
+            )
+            job_id = cursor.lastrowid
+
+        return self.get_video_generation_job(job_id)
+
+    def get_video_generation_job(self, job_id: int):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM video_generation_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+
+        if row is None:
+            raise KeyError(f"Video generation job not found: {job_id}")
+
+        return dict(row)
+
+    def update_video_generation_job(self, job_id: int, **fields):
+        allowed = {"status", "submit_id", "result_url", "output_path", "error_message"}
+        updates = {key: value for key, value in fields.items() if key in allowed}
+        if not updates:
+            return self.get_video_generation_job(job_id)
+
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        values = list(updates.values())
+        values.append(job_id)
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE video_generation_jobs
+                SET {assignments}, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                values,
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(f"Video generation job not found: {job_id}")
+
+        return self.get_video_generation_job(job_id)
 
     def create_render_plan(self, project_id: int):
         self.get_project(project_id)
