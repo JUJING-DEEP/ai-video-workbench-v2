@@ -12,7 +12,8 @@ from pydantic import BaseModel
 from .nano_banana import NanoBananaClient, NanoBananaError
 from .parser import parse_storyboard_text
 from .repository import VideoWorkbenchRepository
-from .video_provider import MockVideoProvider, VideoGenerationProvider, VideoProviderError
+from .video_provider import VideoProviderError
+from .video_provider_registry import get_video_provider
 
 router = APIRouter(prefix="/api/video-workbench", tags=["video-workbench"])
 
@@ -53,6 +54,7 @@ class ProviderSettingsRequest(BaseModel):
 class JimengSettingsRequest(BaseModel):
     api_key: str = ""
     base_url: str = ""
+    enabled: bool = True
 
 
 class GenerateImageRequest(BaseModel):
@@ -60,7 +62,7 @@ class GenerateImageRequest(BaseModel):
 
 
 class GenerateVideoRequest(BaseModel):
-    provider: str = "jimeng"
+    provider: str = "mock"
 
 
 class ReorderShotsRequest(BaseModel):
@@ -80,10 +82,6 @@ def get_repository() -> VideoWorkbenchRepository:
 
 def get_nano_banana_client() -> NanoBananaClient:
     return NanoBananaClient()
-
-
-def get_video_provider() -> VideoGenerationProvider:
-    return MockVideoProvider()
 
 
 @router.get("/health")
@@ -290,6 +288,7 @@ async def get_jimeng_provider_settings(
                 "provider": "jimeng",
                 "api_key": settings["api_key"],
                 "base_url": settings["base_url"],
+                "enabled": bool(settings.get("enabled", True)),
                 "updated_at": settings["updated_at"],
             }
         }
@@ -305,6 +304,7 @@ async def save_jimeng_provider_settings(
         "jimeng",
         data.api_key.strip(),
         data.base_url.strip(),
+        data.enabled,
     )
     return jsonable_encoder(
         {
@@ -312,6 +312,7 @@ async def save_jimeng_provider_settings(
                 "provider": "jimeng",
                 "api_key": settings["api_key"],
                 "base_url": settings["base_url"],
+                "enabled": bool(settings.get("enabled", True)),
                 "updated_at": settings["updated_at"],
             }
         }
@@ -375,11 +376,12 @@ async def generate_shot_video(
     shot_id: int,
     data: GenerateVideoRequest,
     repository: VideoWorkbenchRepository = Depends(get_repository),
-    video_provider: VideoGenerationProvider = Depends(get_video_provider),
 ):
-    provider = data.provider.strip() or "jimeng"
-    if provider != "jimeng":
-        raise HTTPException(status_code=400, detail="provider must be jimeng.")
+    provider = (data.provider.strip() or "mock").lower()
+    try:
+        video_provider = get_video_provider(provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         repository.get_project(project_id)
@@ -397,7 +399,9 @@ async def generate_shot_video(
     settings = repository.get_provider_settings(provider)
     api_key = settings["api_key"].strip()
     base_url = settings["base_url"].strip()
-    if not api_key or not base_url:
+    if provider == "jimeng" and not settings.get("enabled", True):
+        raise HTTPException(status_code=403, detail="Jimeng provider is disabled.")
+    if provider == "jimeng" and (not api_key or not base_url):
         raise HTTPException(status_code=400, detail="Jimeng provider settings are required.")
 
     try:
@@ -407,7 +411,7 @@ async def generate_shot_video(
 
     generated_dir = Path("data") / "uploads" / str(project_id) / "generated" / "videos"
     generated_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"jimeng-video-{shot_id}.mp4"
+    filename = f"{provider}-video-{shot_id}.mp4"
     video_path = generated_dir / filename
     video_path.write_bytes(video_bytes)
 

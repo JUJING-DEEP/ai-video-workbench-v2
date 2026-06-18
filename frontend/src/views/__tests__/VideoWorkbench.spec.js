@@ -12,12 +12,14 @@ import {
   generateRenderPlan,
   exportRenderPlan,
   getTimeline,
+  getJimengSettings,
   getNanoBananaProviderSettings,
   getRenderPlan,
   getProjectShots,
   listProjectAssets,
   listProjects,
   reorderShots,
+  saveJimengSettings,
   saveNanoBananaProviderSettings,
   uploadProjectAsset
 } from '../../services/videoWorkbenchApi'
@@ -66,6 +68,14 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
         duration_seconds: 2
       }
     ]
+  }),
+  getJimengSettings: vi.fn().mockResolvedValue({
+    settings: {
+      provider: 'jimeng',
+      api_key: 'existing-jimeng-key',
+      base_url: 'https://jimeng.example/generate',
+      enabled: true
+    }
   }),
   getTimeline: vi.fn().mockResolvedValue({
     project_id: 7,
@@ -166,6 +176,14 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   }),
   parseStoryboard: vi.fn(),
   reorderShots: vi.fn().mockResolvedValue({ project_id: 7, shot_ids: [2, 1, 3] }),
+  saveJimengSettings: vi.fn().mockResolvedValue({
+    settings: {
+      provider: 'jimeng',
+      api_key: 'new-jimeng-key',
+      base_url: 'https://jimeng.example/v2',
+      enabled: true
+    }
+  }),
   saveNanoBananaProviderSettings: vi.fn().mockResolvedValue({
     settings: {
       provider: 'nano_banana',
@@ -566,7 +584,7 @@ describe('VideoWorkbench', () => {
     await wrapper.find('[data-testid="generate-video"]').trigger('click')
     await flushPromises()
 
-    expect(generateVideo).toHaveBeenCalledWith(7, 1)
+    expect(generateVideo).toHaveBeenCalledWith(7, 1, 'mock')
   })
 
   it('shows video generation loading state', async () => {
@@ -707,6 +725,74 @@ describe('VideoWorkbench', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Video provider error.')
+  })
+
+
+  it('renders provider selector for video generation', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    const selector = wrapper.find('#video-provider')
+    expect(selector.exists()).toBe(true)
+    expect(selector.element.value).toBe('mock')
+    expect(wrapper.text()).toContain('Mock Provider')
+    expect(wrapper.text()).toContain('Jimeng Provider')
+  })
+
+  it('changes the selected video provider', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('#video-provider').setValue('jimeng')
+
+    expect(wrapper.text()).toContain('Current Provider: Jimeng Provider')
+  })
+
+  it('calls generateVideo with the selected provider', async () => {
+    getProjectShots.mockResolvedValueOnce({
+      shots: [
+        {
+          shot_id: 1,
+          mode: 'B',
+          kind: 'image',
+          start_seconds: 0,
+          end_seconds: 2,
+          status: 'keyframe_ready',
+          dialogue_zh: '你好',
+          image_prompt: 'Scene: Test',
+          image_path: '',
+          keyframe_path: 'data/uploads/7/generated/keyframes/keyframe.png',
+          video_path: ''
+        }
+      ]
+    })
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+    await wrapper.find('#video-provider').setValue('jimeng')
+
+    await wrapper.find('[data-testid="generate-video"]').trigger('click')
+    await flushPromises()
+
+    expect(generateVideo).toHaveBeenCalledWith(7, 1, 'jimeng')
+  })
+
+  it('shows the current video provider', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Current Provider: Mock Provider')
   })
 
   it('renders the render pipeline panel', async () => {

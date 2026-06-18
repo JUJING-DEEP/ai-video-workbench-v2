@@ -136,10 +136,10 @@ export function generateKeyframe(projectId, shotId, prompt) {
   })
 }
 
-export function generateVideo(projectId, shotId) {
+export function generateVideo(projectId, shotId, provider = 'mock') {
   return request(`/api/video-workbench/projects/${projectId}/shots/${shotId}/generate-video`, {
     method: 'POST',
-    body: JSON.stringify({ provider: 'jimeng' })
+    body: JSON.stringify({ provider })
   })
 }
 
