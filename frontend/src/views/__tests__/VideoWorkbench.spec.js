@@ -416,6 +416,16 @@ describe('VideoWorkbench', () => {
     expect(wrapper.text()).toContain('Provider settings saved.')
   })
 
+  it('does not prefill provider credentials from settings responses', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    expect(wrapper.find('#nano-banana-api-key').element.value).toBe('')
+    expect(wrapper.find('#jimeng-api-key').element.value).toBe('')
+    expect(wrapper.text()).not.toContain('existing-key')
+    expect(wrapper.text()).not.toContain('existing-jimeng-key')
+  })
+
   it('generates an image and refreshes the asset library', async () => {
     const wrapper = mount(VideoWorkbench)
     await flushPromises()
