@@ -11,11 +11,13 @@ import {
   generateVideo,
   generateRenderPlan,
   exportRenderPlan,
+  getTimeline,
   getNanoBananaProviderSettings,
   getRenderPlan,
   getProjectShots,
   listProjectAssets,
   listProjects,
+  reorderShots,
   saveNanoBananaProviderSettings,
   uploadProjectAsset
 } from '../../services/videoWorkbenchApi'
@@ -62,6 +64,32 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
         order: 1,
         video_path: 'data/uploads/7/generated/videos/jimeng-video-1.mp4',
         duration_seconds: 2
+      }
+    ]
+  }),
+  getTimeline: vi.fn().mockResolvedValue({
+    project_id: 7,
+    shots: [
+      {
+        shot_id: 1,
+        order: 1,
+        title: 'Opening Shot',
+        video_path: '/renders/opening.mp4',
+        duration_seconds: 2
+      },
+      {
+        shot_id: 2,
+        order: 2,
+        title: 'Close-up Shot',
+        video_path: '',
+        duration_seconds: 3
+      },
+      {
+        shot_id: 3,
+        order: 3,
+        title: 'Ending Shot',
+        video_path: '/renders/ending.mp4',
+        duration_seconds: 4
       }
     ]
   }),
@@ -137,6 +165,7 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
     ]
   }),
   parseStoryboard: vi.fn(),
+  reorderShots: vi.fn().mockResolvedValue({ project_id: 7, shot_ids: [2, 1, 3] }),
   saveNanoBananaProviderSettings: vi.fn().mockResolvedValue({
     settings: {
       provider: 'nano_banana',
@@ -745,5 +774,101 @@ describe('VideoWorkbench', () => {
 
     expect(wrapper.text()).toContain('Render plan exported.')
     expect(wrapper.text()).toContain('data/exports/7/render-plan.json')
+  })
+
+  it('renders the timeline panel', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Timeline Editor')
+    expect(wrapper.text()).toContain('Opening Shot')
+    expect(wrapper.text()).toContain('Video ready')
+    expect(wrapper.text()).toContain('3s')
+  })
+
+  it('moves a timeline shot up', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="move-shot-2-up"]').trigger('click')
+    await flushPromises()
+
+    const previewText = wrapper.find('[data-testid="timeline-preview"]').text()
+    expect(previewText.indexOf('1. Close-up Shot')).toBeLessThan(
+      previewText.indexOf('2. Opening Shot')
+    )
+  })
+
+  it('moves a timeline shot down', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="move-shot-1-down"]').trigger('click')
+    await flushPromises()
+
+    const previewText = wrapper.find('[data-testid="timeline-preview"]').text()
+    expect(previewText.indexOf('1. Close-up Shot')).toBeLessThan(
+      previewText.indexOf('2. Opening Shot')
+    )
+  })
+
+  it('calls reorderShots when saving the timeline', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="move-shot-2-up"]').trigger('click')
+    await wrapper.find('[data-testid="save-timeline"]').trigger('click')
+    await flushPromises()
+
+    expect(reorderShots).toHaveBeenCalledWith(7, [2, 1, 3])
+  })
+
+  it('shows updated order after timeline movement', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="move-shot-3-up"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2. Ending Shot')
+  })
+
+  it('renders the save timeline button', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="save-timeline"]').exists()).toBe(true)
+  })
+
+  it('refreshes timeline and render plan after saving', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#project-select').setValue('7')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="save-timeline"]').trigger('click')
+    await flushPromises()
+
+    expect(getTimeline).toHaveBeenCalledWith(7)
+    expect(getRenderPlan).toHaveBeenCalledWith(7)
   })
 })

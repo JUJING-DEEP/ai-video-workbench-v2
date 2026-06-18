@@ -1024,3 +1024,84 @@ def test_export_file_created(client):
     exported = json.loads(path.read_text())
     assert exported["project_id"] == project_id
     assert exported["shots"][0]["video_path"] == "/renders/shot-001.mp4"
+
+
+def test_reorder_shots(client):
+    project_id = _create_project_with_multi_shots(client, "Reorder Shots")
+
+    response = client.put(
+        f"/api/video-workbench/projects/{project_id}/shots/reorder",
+        json={"shot_ids": [3, 1, 2]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"project_id": project_id, "shot_ids": [3, 1, 2]}
+
+
+def test_reorder_unknown_project(client):
+    response = client.put(
+        "/api/video-workbench/projects/999/shots/reorder",
+        json={"shot_ids": [3, 1, 2]},
+    )
+
+    assert response.status_code == 404
+    assert "project" in response.json()["detail"].lower()
+
+
+def test_reorder_invalid_shot(client):
+    project_id = _create_project_with_multi_shots(client, "Invalid Reorder Shot")
+
+    response = client.put(
+        f"/api/video-workbench/projects/{project_id}/shots/reorder",
+        json={"shot_ids": [3, 1, 999]},
+    )
+
+    assert response.status_code == 400
+    assert "shot" in response.json()["detail"].lower()
+
+
+def test_get_timeline(client):
+    project_id = _create_project_with_multi_shots(client, "Get Timeline")
+    _bind_video(client, project_id, 1, "/renders/shot-001.mp4")
+
+    response = client.get(f"/api/video-workbench/projects/{project_id}/timeline")
+
+    assert response.status_code == 200
+    assert response.json()["project_id"] == project_id
+    assert response.json()["shots"] == [
+        {
+            "shot_id": 1,
+            "order": 1,
+            "title": "第一镜",
+            "video_path": "/renders/shot-001.mp4",
+            "duration_seconds": 2.0,
+        },
+        {
+            "shot_id": 2,
+            "order": 2,
+            "title": "第二镜",
+            "video_path": "",
+            "duration_seconds": 3.0,
+        },
+        {
+            "shot_id": 3,
+            "order": 3,
+            "title": "第三镜",
+            "video_path": "",
+            "duration_seconds": 4.0,
+        },
+    ]
+
+
+def test_timeline_order_persistence(client):
+    project_id = _create_project_with_multi_shots(client, "Timeline Persistence")
+    client.put(
+        f"/api/video-workbench/projects/{project_id}/shots/reorder",
+        json={"shot_ids": [3, 1, 2]},
+    )
+
+    response = client.get(f"/api/video-workbench/projects/{project_id}/timeline")
+
+    assert response.status_code == 200
+    assert [shot["shot_id"] for shot in response.json()["shots"]] == [3, 1, 2]
+    assert [shot["order"] for shot in response.json()["shots"]] == [1, 2, 3]

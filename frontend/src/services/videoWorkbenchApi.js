@@ -158,3 +158,14 @@ export function exportRenderPlan(projectId) {
     method: 'POST'
   })
 }
+
+export function getTimeline(projectId) {
+  return request(`/api/video-workbench/projects/${projectId}/timeline`)
+}
+
+export function reorderShots(projectId, shotIds) {
+  return request(`/api/video-workbench/projects/${projectId}/shots/reorder`, {
+    method: 'PUT',
+    body: JSON.stringify({ shot_ids: shotIds })
+  })
+}

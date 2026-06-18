@@ -62,11 +62,13 @@ class VideoWorkbenchRepository:
                     video_path TEXT DEFAULT '',
                     review_notes TEXT DEFAULT '',
                     error_message TEXT DEFAULT '',
+                    timeline_order INTEGER,
                     UNIQUE(project_id, shot_id),
                     FOREIGN KEY(project_id) REFERENCES video_projects(id) ON DELETE CASCADE
                 )
                 """
             )
+            self._ensure_column(conn, "video_shots", "timeline_order", "INTEGER")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS video_assets (
@@ -174,9 +176,10 @@ class VideoWorkbenchRepository:
                     dialogue_en, image_prompt, i2v_prompt, base_image_shot_id,
                     keep_unchanged, add_new_element, key_node_type,
                     visual_style, output_form, status, image_path,
-                    keyframe_path, video_path, review_notes, error_message
+                    keyframe_path, video_path, review_notes, error_message,
+                    timeline_order
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [self._shot_values(project_id, shot) for shot in shots],
             )
@@ -184,7 +187,7 @@ class VideoWorkbenchRepository:
     def get_project_shots(self, project_id: int) -> list[Shot]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM video_shots WHERE project_id = ? ORDER BY shot_id",
+                "SELECT * FROM video_shots WHERE project_id = ? ORDER BY COALESCE(timeline_order, shot_id), shot_id",
                 (project_id,),
             ).fetchall()
         return [self._row_to_shot(row) for row in rows]
@@ -398,6 +401,45 @@ class VideoWorkbenchRepository:
             "render_plan": export_data,
         }
 
+    def reorder_shots(self, project_id: int, shot_ids: list[int]):
+        self.get_project(project_id)
+        existing_ids = {shot.shot_id for shot in self.get_project_shots(project_id)}
+        requested_ids = set(shot_ids)
+        if requested_ids != existing_ids:
+            missing = sorted(requested_ids - existing_ids)
+            omitted = sorted(existing_ids - requested_ids)
+            raise ValueError(f"Invalid shot order. Missing: {missing}. Omitted: {omitted}.")
+
+        with self._connect() as conn:
+            for index, shot_id in enumerate(shot_ids, start=1):
+                conn.execute(
+                    """
+                    UPDATE video_shots
+                    SET timeline_order = ?
+                    WHERE project_id = ? AND shot_id = ?
+                    """,
+                    (index, project_id, shot_id),
+                )
+
+        return {"project_id": project_id, "shot_ids": shot_ids}
+
+    def get_timeline(self, project_id: int):
+        self.get_project(project_id)
+        shots = self.get_project_shots(project_id)
+        return {
+            "project_id": project_id,
+            "shots": [
+                {
+                    "shot_id": shot.shot_id,
+                    "order": index,
+                    "title": shot.dialogue_zh or shot.dialogue_en or f"Shot {shot.shot_id}",
+                    "video_path": shot.video_path,
+                    "duration_seconds": shot.duration_seconds,
+                }
+                for index, shot in enumerate(shots, start=1)
+            ],
+        }
+
     def _ensure_column(self, conn, table: str, column: str, definition: str):
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
         existing_columns = {row["name"] for row in rows}
@@ -448,6 +490,7 @@ class VideoWorkbenchRepository:
             shot.video_path,
             shot.review_notes,
             shot.error_message,
+            shot.shot_id,
         )
 
     def _row_to_shot(self, row) -> Shot:

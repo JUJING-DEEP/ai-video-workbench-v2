@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -61,6 +61,10 @@ class GenerateImageRequest(BaseModel):
 
 class GenerateVideoRequest(BaseModel):
     provider: str = "jimeng"
+
+
+class ReorderShotsRequest(BaseModel):
+    shot_ids: List[int]
 
 
 def get_repository() -> VideoWorkbenchRepository:
@@ -463,6 +467,35 @@ async def export_project_render_plan(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return jsonable_encoder(exported)
+
+
+@router.put("/projects/{project_id}/shots/reorder")
+async def reorder_project_shots(
+    project_id: int,
+    data: ReorderShotsRequest,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        result = repository.reorder_shots(project_id, data.shot_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return jsonable_encoder(result)
+
+
+@router.get("/projects/{project_id}/timeline")
+async def get_project_timeline(
+    project_id: int,
+    repository: VideoWorkbenchRepository = Depends(get_repository),
+):
+    try:
+        timeline = repository.get_timeline(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return jsonable_encoder(timeline)
 
 
 @router.post("/projects/{project_id}/shots/{shot_id}/generate-keyframe")

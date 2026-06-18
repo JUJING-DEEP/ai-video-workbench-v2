@@ -252,6 +252,70 @@
             </tbody>
           </table>
         </section>
+
+        <section class="video-workbench__render-pipeline" aria-label="Timeline Editor">
+          <div>
+            <p class="video-workbench__eyebrow">Timeline Editor</p>
+            <h3>Timeline</h3>
+          </div>
+          <table v-if="timelineShots.length" class="video-workbench__render-table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Title</th>
+                <th>Video Status</th>
+                <th>Duration</th>
+                <th>Move</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(shot, index) in timelineShots" :key="shot.shot_id">
+                <td>#{{ shot.order }}</td>
+                <td>{{ shot.title }}</td>
+                <td>{{ videoStatus(shot) }}</td>
+                <td>{{ shot.duration_seconds }}s</td>
+                <td class="video-workbench__timeline-actions">
+                  <button
+                    type="button"
+                    :data-testid="`move-shot-${shot.shot_id}-up`"
+                    :disabled="index === 0"
+                    @click="moveTimelineShot(index, -1)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    :data-testid="`move-shot-${shot.shot_id}-down`"
+                    :disabled="index === timelineShots.length - 1"
+                    @click="moveTimelineShot(index, 1)"
+                  >
+                    ↓
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else class="video-workbench__muted">暂无 Timeline。</p>
+          <button
+            type="button"
+            data-testid="save-timeline"
+            :disabled="isSavingTimeline || !timelineShots.length"
+            @click="handleSaveTimeline"
+          >
+            {{ isSavingTimeline ? 'Saving timeline...' : 'Save Timeline' }}
+          </button>
+          <p v-if="timelineMessage" class="video-workbench__upload-message">
+            {{ timelineMessage }}
+          </p>
+          <div v-if="timelineShots.length" class="video-workbench__timeline-preview">
+            <h4>Timeline Preview</h4>
+            <ol data-testid="timeline-preview">
+              <li v-for="(shot, index) in timelineShots" :key="`preview-${shot.shot_id}`">
+                {{ index + 1 }}. {{ shot.title }}
+              </li>
+            </ol>
+          </div>
+        </section>
       </section>
 
       <header class="video-workbench__header">
@@ -374,10 +438,12 @@ import {
   getNanoBananaProviderSettings,
   getProjectShots,
   getRenderPlan,
+  getTimeline,
   importStoryboard,
   listProjectAssets,
   listProjects,
   parseStoryboard,
+  reorderShots,
   saveNanoBananaProviderSettings,
   uploadProjectAsset
 } from '../services/videoWorkbenchApi'
@@ -416,6 +482,9 @@ const renderPlan = ref(null)
 const renderPlanMessage = ref('')
 const isGeneratingRenderPlan = ref(false)
 const isExportingRenderPlan = ref(false)
+const timeline = ref({ project_id: null, shots: [] })
+const timelineMessage = ref('')
+const isSavingTimeline = ref(false)
 
 const assetFields = [
   { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png', accept: 'image/*' },
@@ -469,6 +538,7 @@ const uploadAccept = computed(() => {
 })
 
 const renderPlanItems = computed(() => renderPlan.value?.items || [])
+const timelineShots = computed(() => timeline.value?.shots || [])
 
 onMounted(() => {
   refreshProjects()
@@ -551,6 +621,7 @@ async function handleSelectProject() {
     shots.value = []
     projectAssets.value = []
     renderPlan.value = null
+    timeline.value = { project_id: null, shots: [] }
     selectedShot.value = null
     validationReport.value = { render_ready: false, issues: [] }
     return
@@ -561,13 +632,17 @@ async function handleSelectProject() {
 
 async function loadProjectShots(projectId) {
   try {
-    const payload = await getProjectShots(projectId)
-    const assetPayload = await listProjectAssets(projectId)
-    const renderPayload = await getRenderPlan(projectId)
+    const [payload, assetPayload, renderPayload, timelinePayload] = await Promise.all([
+      getProjectShots(projectId),
+      listProjectAssets(projectId),
+      getRenderPlan(projectId),
+      getTimeline(projectId)
+    ])
     parsed.value = { project: selectedProject.value, shots: payload.shots || [] }
     shots.value = payload.shots || []
     projectAssets.value = assetPayload.assets || []
     renderPlan.value = renderPayload
+    timeline.value = timelinePayload
     selectedShot.value = findUpdatedSelectedShot(shots.value)
     syncAssetPaths()
     validationReport.value = buildValidationReport(shots.value)
@@ -840,6 +915,48 @@ async function handleExportRenderPlan() {
   }
 }
 
+function moveTimelineShot(index, direction) {
+  const nextIndex = index + direction
+  const currentShots = [...timelineShots.value]
+
+  if (nextIndex < 0 || nextIndex >= currentShots.length) {
+    return
+  }
+
+  const shot = currentShots[index]
+  currentShots[index] = currentShots[nextIndex]
+  currentShots[nextIndex] = shot
+  timeline.value = {
+    ...timeline.value,
+    shots: currentShots.map((currentShot, currentIndex) => ({
+      ...currentShot,
+      order: currentIndex + 1
+    }))
+  }
+}
+
+async function handleSaveTimeline() {
+  timelineMessage.value = ''
+
+  if (!selectedProject.value) {
+    timelineMessage.value = '请先选择项目。'
+    return
+  }
+
+  isSavingTimeline.value = true
+
+  try {
+    const shotIds = timelineShots.value.map((shot) => shot.shot_id)
+    await reorderShots(selectedProject.value.id, shotIds)
+    await loadProjectShots(selectedProject.value.id)
+    timelineMessage.value = 'Timeline saved.'
+  } catch (err) {
+    timelineMessage.value = err instanceof Error ? err.message : '保存 Timeline 失败'
+  } finally {
+    isSavingTimeline.value = false
+  }
+}
+
 function findUpdatedSelectedShot(currentShots) {
   if (!selectedShot.value) {
     return currentShots[0] || null
@@ -874,6 +991,10 @@ function assetStatus(assetType) {
 
 function canPreviewAsset(asset) {
   return ['image', 'keyframe', 'video'].includes(asset.asset_type)
+}
+
+function videoStatus(shot) {
+  return shot.video_path ? 'Video ready' : 'Video missing'
 }
 
 function buildValidationReport(currentShots) {
