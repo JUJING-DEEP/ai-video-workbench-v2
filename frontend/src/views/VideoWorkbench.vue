@@ -90,6 +90,51 @@
               placeholder="https://..."
             />
           </div>
+          <div class="video-workbench__field">
+            <label for="jimeng-access-key">Jimeng Access Key</label>
+            <input
+              id="jimeng-access-key"
+              v-model="jimengSettings.access_key"
+              type="password"
+              placeholder="Jimeng access key"
+            />
+          </div>
+          <div class="video-workbench__field">
+            <label for="jimeng-secret-key">Jimeng Secret Key</label>
+            <input
+              id="jimeng-secret-key"
+              v-model="jimengSettings.secret_key"
+              type="password"
+              placeholder="Jimeng secret key"
+            />
+          </div>
+          <div class="video-workbench__field">
+            <label for="jimeng-region">Jimeng Region</label>
+            <input
+              id="jimeng-region"
+              v-model="jimengSettings.region"
+              type="text"
+              placeholder="cn-north-1"
+            />
+          </div>
+          <div class="video-workbench__field">
+            <label for="jimeng-endpoint">Jimeng Endpoint</label>
+            <input
+              id="jimeng-endpoint"
+              v-model="jimengSettings.endpoint"
+              type="text"
+              placeholder="https://..."
+            />
+          </div>
+          <div class="video-workbench__field">
+            <label for="jimeng-model">Jimeng Model</label>
+            <input
+              id="jimeng-model"
+              v-model="jimengSettings.model"
+              type="text"
+              placeholder="jimeng-v3"
+            />
+          </div>
           <label class="video-workbench__checkbox" for="jimeng-enabled">
             <input id="jimeng-enabled" v-model="jimengSettings.enabled" type="checkbox" />
             Enable Jimeng
@@ -556,7 +601,16 @@ const selectedUploadFile = ref(null)
 const isUploadingAsset = ref(false)
 const uploadMessage = ref('')
 const nanoBananaSettings = ref({ nano_banana_api_key: '', nano_banana_base_url: '' })
-const jimengSettings = ref({ api_key: '', base_url: '', enabled: true })
+const jimengSettings = ref({
+  api_key: '',
+  base_url: '',
+  access_key: '',
+  secret_key: '',
+  region: '',
+  endpoint: '',
+  model: '',
+  enabled: true
+})
 const providerMessage = ref('')
 const jimengProviderMessage = ref('')
 const isSavingProviderSettings = ref(false)
@@ -666,6 +720,11 @@ async function loadProviderSettings() {
     jimengSettings.value = {
       api_key: '',
       base_url: jimengPayload.settings?.base_url || '',
+      access_key: '',
+      secret_key: '',
+      region: jimengPayload.settings?.region || '',
+      endpoint: jimengPayload.settings?.endpoint || '',
+      model: jimengPayload.settings?.model || '',
       enabled: jimengPayload.settings?.enabled !== false
     }
   } catch (err) {
@@ -681,6 +740,11 @@ async function handleSaveJimengSettings() {
     await saveJimengSettings({
       api_key: jimengSettings.value.api_key.trim(),
       base_url: jimengSettings.value.base_url.trim(),
+      access_key: jimengSettings.value.access_key.trim(),
+      secret_key: jimengSettings.value.secret_key.trim(),
+      region: jimengSettings.value.region.trim(),
+      endpoint: jimengSettings.value.endpoint.trim(),
+      model: jimengSettings.value.model.trim(),
       enabled: jimengSettings.value.enabled
     })
     jimengProviderMessage.value = 'Jimeng settings saved.'

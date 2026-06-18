@@ -87,8 +87,11 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   getJimengSettings: vi.fn().mockResolvedValue({
     settings: {
       provider: 'jimeng',
-      api_key: 'existing-jimeng-key',
       base_url: 'https://jimeng.example/generate',
+      region: 'cn-north-1',
+      endpoint: 'https://open.volcengineapi.com',
+      model: 'jimeng-v3',
+      configured: true,
       enabled: true
     }
   }),
@@ -207,8 +210,8 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   saveJimengSettings: vi.fn().mockResolvedValue({
     settings: {
       provider: 'jimeng',
-      api_key: 'new-jimeng-key',
       base_url: 'https://jimeng.example/v2',
+      configured: true,
       enabled: true
     }
   }),
@@ -414,6 +417,30 @@ describe('VideoWorkbench', () => {
       nano_banana_base_url: 'https://nano.example/v2'
     })
     expect(wrapper.text()).toContain('Provider settings saved.')
+  })
+
+  it('saves Jimeng REST provider settings', async () => {
+    const wrapper = mount(VideoWorkbench)
+    await flushPromises()
+
+    await wrapper.find('#jimeng-access-key').setValue('new-access-key')
+    await wrapper.find('#jimeng-secret-key').setValue('new-secret-key')
+    await wrapper.find('#jimeng-region').setValue('cn-north-1')
+    await wrapper.find('#jimeng-endpoint').setValue('https://open.volcengineapi.com')
+    await wrapper.find('#jimeng-model').setValue('jimeng-v3')
+    await wrapper.find('[data-testid="save-jimeng-settings"]').trigger('click')
+    await flushPromises()
+
+    expect(saveJimengSettings).toHaveBeenCalledWith({
+      api_key: '',
+      base_url: 'https://jimeng.example/generate',
+      access_key: 'new-access-key',
+      secret_key: 'new-secret-key',
+      region: 'cn-north-1',
+      endpoint: 'https://open.volcengineapi.com',
+      model: 'jimeng-v3',
+      enabled: true
+    })
   })
 
   it('does not prefill provider credentials from settings responses', async () => {

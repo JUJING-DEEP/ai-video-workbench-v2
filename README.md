@@ -1,10 +1,15 @@
-> 🚧 Project Status: MVP Development (Phase 8 In Progress)
+> 🚧 Project Status: Beta Hardening
 >
 > Current features:
 > - Storyboard management
 > - Shot management
 > - Asset binding
 > - Asset preview
+> - Asset upload
+> - Nano Banana image and keyframe generation
+> - Jimeng video generation and REST job workflow
+> - Timeline editor
+> - Render plan export
 > - CI/CD pipeline
 # AI Video Workbench / AI 短视频生产工作台
 
@@ -113,15 +118,82 @@ flowchart LR
 
 ## 4. Local Development / 本地启动方法
 
+### 5-Minute Quickstart / 5 分钟上手
+
+Clone / 克隆：
+
+```bash
+git clone https://github.com/JUJING-DEEP/ai-video-workbench.git
+cd ai-video-workbench
+```
+
+Backend install / 安装后端：
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+```
+
+Frontend install / 安装前端：
+
+```bash
+cd ../frontend
+npm ci
+```
+
+Run backend / 启动后端：
+
+```bash
+cd ../backend
+uvicorn app.main:app --reload --port 8000
+```
+
+Run frontend / 启动前端：
+
+```bash
+cd ../frontend
+npm run dev -- --host 127.0.0.1
+```
+
+Open / 打开：
+
+```text
+http://127.0.0.1:5173/video-workbench
+```
+
+First workflow / 第一次完整流程：
+
+1. Open **Provider Settings**.
+2. Configure Provider:
+   - Nano Banana: enter API key and Base URL.
+   - Jimeng: enter Base URL or REST fields, including access key, secret key, endpoint, model, and enabled state.
+3. Create Project using the project bar.
+4. Import Storyboard to create Shot records. Use this minimal sample:
+
+```text
+第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）
+台词：你好 / Hello
+--- 提示词 ---
+Scene: Test shot.
+```
+
+5. Select the Shot in the timeline.
+6. Generate Keyframe from the AI Keyframe Generator.
+7. Generate Video from the Video Generator, or submit and poll a Jimeng REST job.
+8. Generate Render Plan in the Render Pipeline panel.
+9. Export Render Plan.
+
+Generated files are written under `data/uploads/{project_id}/...` and `data/exports/{project_id}/render-plan.json`.
+
 ### Prerequisites / 环境要求
 
-- Python 3.8+
-- Node.js 18+
+- Python 3.11 recommended; CI currently tests Python 3.11
+- Node.js 20 recommended; CI currently tests Node 20
 - npm
 - FFmpeg and ffprobe, required for later media probing/rendering workflows
 
-- Python 3.8+
-- Node.js 18+
+- 推荐 Python 3.11；CI 当前使用 Python 3.11
+- 推荐 Node.js 20；CI 当前使用 Node 20
 - npm
 - FFmpeg 和 ffprobe，后续媒体探测与渲染流程会用到
 
@@ -149,7 +221,7 @@ Expected response / 预期返回：
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev -- --host 127.0.0.1
 ```
 
