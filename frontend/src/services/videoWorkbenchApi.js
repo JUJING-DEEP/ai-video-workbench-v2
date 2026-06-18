@@ -143,6 +143,22 @@ export function generateVideo(projectId, shotId, provider = 'mock') {
   })
 }
 
+export function createVideoJob(projectId, shotId) {
+  return request(`/api/video-workbench/projects/${projectId}/shots/${shotId}/video-jobs`, {
+    method: 'POST'
+  })
+}
+
+export function getVideoJob(jobId) {
+  return request(`/api/video-workbench/video-jobs/${jobId}`)
+}
+
+export function pollVideoJob(jobId) {
+  return request(`/api/video-workbench/video-jobs/${jobId}/poll`, {
+    method: 'POST'
+  })
+}
+
 export function generateRenderPlan(projectId) {
   return request(`/api/video-workbench/projects/${projectId}/render-plan`, {
     method: 'POST'
