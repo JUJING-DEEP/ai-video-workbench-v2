@@ -94,6 +94,28 @@ def get_jimeng_rest_provider() -> JimengRestProvider:
     return JimengRestProvider()
 
 
+def _has_value(settings: dict, key: str) -> bool:
+    return bool(str(settings.get(key, "")).strip())
+
+
+def _public_provider_settings(
+    provider: str,
+    settings: dict,
+    credential_fields: tuple[str, ...],
+    extra_fields: tuple[str, ...] = (),
+):
+    configured = any(_has_value(settings, field) for field in credential_fields)
+    payload = {
+        "provider": provider,
+        "configured": configured,
+        "enabled": bool(settings.get("enabled", False)) if configured else False,
+        "updated_at": settings.get("updated_at", ""),
+    }
+    for field in extra_fields:
+        payload[field] = settings.get(field, "")
+    return payload
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok"}
@@ -255,12 +277,12 @@ async def get_nano_banana_provider_settings(
     settings = repository.get_provider_settings("nano_banana")
     return jsonable_encoder(
         {
-            "settings": {
-                "provider": "nano_banana",
-                "nano_banana_api_key": settings["api_key"],
-                "nano_banana_base_url": settings["base_url"],
-                "updated_at": settings["updated_at"],
-            }
+            "settings": _public_provider_settings(
+                "nano_banana",
+                settings,
+                ("api_key",),
+                ("base_url",),
+            )
         }
     )
 
@@ -294,18 +316,12 @@ async def get_jimeng_provider_settings(
     settings = repository.get_provider_settings("jimeng")
     return jsonable_encoder(
         {
-            "settings": {
-                "provider": "jimeng",
-                "api_key": settings["api_key"],
-                "base_url": settings["base_url"],
-                "access_key": settings.get("access_key", ""),
-                "secret_key": settings.get("secret_key", ""),
-                "region": settings.get("region", ""),
-                "endpoint": settings.get("endpoint", ""),
-                "model": settings.get("model", ""),
-                "enabled": bool(settings.get("enabled", True)),
-                "updated_at": settings["updated_at"],
-            }
+            "settings": _public_provider_settings(
+                "jimeng",
+                settings,
+                ("api_key", "access_key", "secret_key"),
+                ("base_url", "region", "endpoint", "model"),
+            )
         }
     )
 

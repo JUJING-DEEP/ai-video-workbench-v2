@@ -369,7 +369,63 @@ def test_save_and_get_nano_banana_provider_settings(client):
     get_response = client.get("/api/video-workbench/provider-settings/nano-banana")
 
     assert get_response.status_code == 200
-    assert get_response.json()["settings"] == settings
+    public_settings = get_response.json()["settings"]
+    assert public_settings["provider"] == "nano_banana"
+    assert public_settings["configured"] is True
+    assert public_settings["enabled"] is True
+    assert public_settings["base_url"] == "https://nano.example/generate"
+
+
+def test_provider_settings_get_does_not_return_api_key(client):
+    client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={
+            "nano_banana_api_key": "secret-nano-key",
+            "nano_banana_base_url": "https://nano.example/generate",
+        },
+    )
+    _save_jimeng_settings(client, api_key="secret-jimeng-key")
+
+    nano_settings = client.get("/api/video-workbench/provider-settings/nano-banana").json()["settings"]
+    jimeng_settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+
+    for settings in (nano_settings, jimeng_settings):
+        assert "api_key" not in settings
+        assert "nano_banana_api_key" not in settings
+    assert "secret-nano-key" not in json.dumps(nano_settings)
+    assert "secret-jimeng-key" not in json.dumps(jimeng_settings)
+
+
+def test_provider_settings_get_does_not_return_access_key(client):
+    _save_jimeng_rest_settings(client, access_key="secret-access-key")
+
+    settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+
+    assert "access_key" not in settings
+    assert "secret-access-key" not in json.dumps(settings)
+
+
+def test_provider_settings_get_does_not_return_secret_key(client):
+    _save_jimeng_rest_settings(client, secret_key="secret-secret-key")
+
+    settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+
+    assert "secret_key" not in settings
+    assert "secret-secret-key" not in json.dumps(settings)
+
+
+def test_provider_settings_reports_configured(client):
+    empty_settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    assert empty_settings["provider"] == "jimeng"
+    assert empty_settings["configured"] is False
+    assert empty_settings["enabled"] is False
+
+    _save_jimeng_rest_settings(client)
+
+    configured_settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    assert configured_settings["provider"] == "jimeng"
+    assert configured_settings["configured"] is True
+    assert configured_settings["enabled"] is True
 
 
 def test_create_project_asset_persists_source_and_prompt(client):
@@ -810,13 +866,16 @@ def test_jimeng_settings_save(client):
 
 
 def test_jimeng_settings_load(client):
-    saved = _save_jimeng_settings(client).json()["settings"]
+    _save_jimeng_settings(client)
 
     response = client.get("/api/video-workbench/provider-settings/jimeng")
 
     assert response.status_code == 200
-    assert response.json()["settings"] == saved
-    assert response.json()["settings"]["enabled"] is True
+    settings = response.json()["settings"]
+    assert settings["provider"] == "jimeng"
+    assert settings["configured"] is True
+    assert settings["enabled"] is True
+    assert settings["base_url"] == "https://jimeng.example/generate"
 
 
 def test_generate_video_success(client):

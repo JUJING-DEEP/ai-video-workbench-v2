@@ -660,11 +660,11 @@ async function loadProviderSettings() {
       getJimengSettings()
     ])
     nanoBananaSettings.value = {
-      nano_banana_api_key: payload.settings?.nano_banana_api_key || '',
-      nano_banana_base_url: payload.settings?.nano_banana_base_url || ''
+      nano_banana_api_key: '',
+      nano_banana_base_url: payload.settings?.base_url || payload.settings?.nano_banana_base_url || ''
     }
     jimengSettings.value = {
-      api_key: jimengPayload.settings?.api_key || '',
+      api_key: '',
       base_url: jimengPayload.settings?.base_url || '',
       enabled: jimengPayload.settings?.enabled !== false
     }
