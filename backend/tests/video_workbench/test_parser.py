@@ -3,7 +3,6 @@ import pytest
 from app.video_workbench.models import ShotKind, ShotMode
 from app.video_workbench.parser import parse_storyboard_text
 
-
 SAMPLE = """
 分镜规划信息 (Storyboard Planning)
 音频总时长： 538 秒

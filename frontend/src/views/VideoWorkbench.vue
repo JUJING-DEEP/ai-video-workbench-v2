@@ -15,7 +15,7 @@
             v-model="projectTitle"
             type="text"
             placeholder="例如：Revenge Bedtime Procrastination"
-          />
+          >
         </div>
 
         <button type="button" :disabled="isCreatingProject" @click="handleCreateProject">
@@ -37,366 +37,52 @@
         当前项目：{{ selectedProject.title }} / {{ selectedProject.slug }}
       </p>
 
-      <section class="video-workbench__provider-settings" aria-label="Provider Settings">
-        <div>
-          <p class="video-workbench__eyebrow">Provider Settings</p>
-          <h2>Nano Banana</h2>
-        </div>
-        <div class="video-workbench__settings-grid">
-          <div class="video-workbench__field">
-            <label for="nano-banana-api-key">API Key</label>
-            <input
-              id="nano-banana-api-key"
-              v-model="nanoBananaSettings.nano_banana_api_key"
-              type="password"
-              placeholder="Nano Banana API key"
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="nano-banana-base-url">Base URL</label>
-            <input
-              id="nano-banana-base-url"
-              v-model="nanoBananaSettings.nano_banana_base_url"
-              type="text"
-              placeholder="https://..."
-            />
-          </div>
-          <button
-            type="button"
-            data-testid="save-nano-banana-settings"
-            :disabled="isSavingProviderSettings"
-            @click="handleSaveProviderSettings"
-          >
-            {{ isSavingProviderSettings ? '保存中...' : 'Save provider settings' }}
-          </button>
-        </div>
-        <p v-if="providerMessage" class="video-workbench__upload-message">{{ providerMessage }}</p>
-        <div class="video-workbench__settings-grid">
-          <div class="video-workbench__field">
-            <label for="jimeng-api-key">Jimeng API Key</label>
-            <input
-              id="jimeng-api-key"
-              v-model="jimengSettings.api_key"
-              type="password"
-              placeholder="Jimeng API key"
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="jimeng-base-url">Jimeng Base URL</label>
-            <input
-              id="jimeng-base-url"
-              v-model="jimengSettings.base_url"
-              type="text"
-              placeholder="https://..."
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="jimeng-access-key">Jimeng Access Key</label>
-            <input
-              id="jimeng-access-key"
-              v-model="jimengSettings.access_key"
-              type="password"
-              placeholder="Jimeng access key"
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="jimeng-secret-key">Jimeng Secret Key</label>
-            <input
-              id="jimeng-secret-key"
-              v-model="jimengSettings.secret_key"
-              type="password"
-              placeholder="Jimeng secret key"
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="jimeng-region">Jimeng Region</label>
-            <input
-              id="jimeng-region"
-              v-model="jimengSettings.region"
-              type="text"
-              placeholder="cn-north-1"
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="jimeng-endpoint">Jimeng Endpoint</label>
-            <input
-              id="jimeng-endpoint"
-              v-model="jimengSettings.endpoint"
-              type="text"
-              placeholder="https://..."
-            />
-          </div>
-          <div class="video-workbench__field">
-            <label for="jimeng-model">Jimeng Model</label>
-            <input
-              id="jimeng-model"
-              v-model="jimengSettings.model"
-              type="text"
-              placeholder="jimeng-v3"
-            />
-          </div>
-          <label class="video-workbench__checkbox" for="jimeng-enabled">
-            <input id="jimeng-enabled" v-model="jimengSettings.enabled" type="checkbox" />
-            Enable Jimeng
-          </label>
-          <button
-            type="button"
-            data-testid="save-jimeng-settings"
-            :disabled="isSavingJimengSettings"
-            @click="handleSaveJimengSettings"
-          >
-            {{ isSavingJimengSettings ? '保存中...' : 'Save Jimeng settings' }}
-          </button>
-        </div>
-        <p v-if="jimengProviderMessage" class="video-workbench__upload-message">
-          {{ jimengProviderMessage }}
-        </p>
-      </section>
+      <ProviderSettingsPanel
+        :nano-banana-settings="nanoBananaSettings"
+        :jimeng-settings="jimengSettings"
+        :provider-message="providerMessage"
+        :jimeng-provider-message="jimengProviderMessage"
+        :is-saving-provider-settings="isSavingProviderSettings"
+        :is-saving-jimeng-settings="isSavingJimengSettings"
+        @save-nano-banana="handleSaveProviderSettings"
+        @save-jimeng="handleSaveJimengSettings"
+      />
 
-      <section v-if="selectedProject" class="video-workbench__asset-library" aria-label="素材库">
-        <div>
-          <p class="video-workbench__eyebrow">Asset Library</p>
-          <h2>素材库</h2>
-        </div>
-
-        <section class="video-workbench__asset-upload" aria-label="上传素材">
-          <div class="video-workbench__field">
-            <label for="asset-library-upload-type">素材类型</label>
-            <select id="asset-library-upload-type" v-model="uploadAssetType">
-              <option value="image">image</option>
-              <option value="keyframe">keyframe</option>
-              <option value="video">video</option>
-            </select>
-          </div>
-          <div class="video-workbench__field">
-            <label for="asset-library-upload-file">本地文件</label>
-            <input
-              id="asset-library-upload-file"
-              type="file"
-              :accept="uploadAccept"
-              @change="handleSelectUploadFile"
-            />
-          </div>
-          <button
-            type="button"
-            data-testid="upload-library-asset"
-            :disabled="!selectedUploadFile || isUploadingAsset"
-            @click="handleUploadAsset"
-          >
-            {{ isUploadingAsset ? '上传中...' : 'Upload asset' }}
-          </button>
-        </section>
-
-        <p v-if="uploadMessage" class="video-workbench__upload-message">{{ uploadMessage }}</p>
-
-        <section class="video-workbench__ai-generator" aria-label="AI Image Generator">
-          <div>
-            <p class="video-workbench__eyebrow">AI Image Generator</p>
-            <h3>Nano Banana image</h3>
-          </div>
-          <textarea
-            id="nano-banana-prompt"
-            v-model="nanoBananaPrompt"
-            aria-label="Nano Banana prompt"
-            placeholder="Describe the image to generate..."
-          ></textarea>
-          <button
-            type="button"
-            data-testid="generate-nano-banana-image"
-            :disabled="isGeneratingImage || !selectedProject"
-            @click="handleGenerateImage"
-          >
-            {{ isGeneratingImage ? 'Generating...' : 'Generate image' }}
-          </button>
-          <p v-if="generationMessage" class="video-workbench__upload-message">
-            {{ generationMessage }}
-          </p>
-        </section>
-
-        <section class="video-workbench__ai-generator" aria-label="AI Keyframe Generator">
-          <div>
-            <p class="video-workbench__eyebrow">AI Keyframe Generator</p>
-            <h3>Shot keyframe</h3>
-          </div>
-          <p v-if="!selectedShot" class="video-workbench__muted">请先选择一个 Shot。</p>
-          <textarea
-            id="keyframe-prompt"
-            v-model="keyframePrompt"
-            aria-label="Keyframe prompt"
-            placeholder="Describe the keyframe to generate..."
-          ></textarea>
-          <button
-            type="button"
-            data-testid="generate-keyframe"
-            :disabled="isGeneratingKeyframe || !selectedProject || !selectedShot"
-            @click="handleGenerateKeyframe"
-          >
-            {{ isGeneratingKeyframe ? 'Generating keyframe...' : 'Generate Keyframe' }}
-          </button>
-          <p v-if="keyframeMessage" class="video-workbench__upload-message">
-            {{ keyframeMessage }}
-          </p>
-        </section>
-
-        <div class="video-workbench__asset-groups">
-          <section
-            v-for="group in assetLibraryGroups"
-            :key="group.type"
-            class="video-workbench__asset-group"
-          >
-            <h3>{{ group.title }}</h3>
-            <p v-if="!group.assets.length" class="video-workbench__muted">暂无素材</p>
-            <article
-              v-for="asset in group.assets"
-              :key="asset.id"
-              class="video-workbench__library-asset"
-            >
-              <div>
-                <strong>{{ asset.name }}</strong>
-                <span>{{ asset.asset_type }}</span>
-              </div>
-              <p>{{ asset.path }}</p>
-              <small>source: {{ asset.source || 'manual' }}</small>
-              <small v-if="asset.prompt">prompt: {{ asset.prompt }}</small>
-              <small>{{ canPreviewAsset(asset) ? '可预览' : '不可预览' }}</small>
-              <div class="video-workbench__asset-actions">
-                <button
-                  type="button"
-                  :data-testid="`bind-library-asset-${asset.id}-image`"
-                  :disabled="!selectedShot || savingAssetType === 'image'"
-                  @click="handleBindLibraryAsset(asset, 'image')"
-                >
-                  Bind as image
-                </button>
-                <button
-                  type="button"
-                  :data-testid="`bind-library-asset-${asset.id}-keyframe`"
-                  :disabled="!selectedShot || savingAssetType === 'keyframe'"
-                  @click="handleBindLibraryAsset(asset, 'keyframe')"
-                >
-                  Bind as keyframe
-                </button>
-                <button
-                  type="button"
-                  :data-testid="`bind-library-asset-${asset.id}-video`"
-                  :disabled="!selectedShot || savingAssetType === 'video'"
-                  @click="handleBindLibraryAsset(asset, 'video')"
-                >
-                  Bind as video
-                </button>
-              </div>
-            </article>
-          </section>
-        </div>
-
-        <section class="video-workbench__render-pipeline" aria-label="Render Pipeline">
-          <div>
-            <p class="video-workbench__eyebrow">Render Pipeline</p>
-            <h3>Render Plan</h3>
-          </div>
-          <div class="video-workbench__render-actions">
-            <button
-              type="button"
-              data-testid="generate-render-plan"
-              :disabled="isGeneratingRenderPlan"
-              @click="handleGenerateRenderPlan"
-            >
-              {{ isGeneratingRenderPlan ? 'Generating render plan...' : 'Generate Render Plan' }}
-            </button>
-            <button
-              type="button"
-              data-testid="export-render-plan"
-              :disabled="isExportingRenderPlan"
-              @click="handleExportRenderPlan"
-            >
-              {{ isExportingRenderPlan ? 'Exporting...' : 'Export Render Plan' }}
-            </button>
-          </div>
-          <p v-if="renderPlanMessage" class="video-workbench__upload-message">
-            {{ renderPlanMessage }}
-          </p>
-          <table v-if="renderPlanItems.length" class="video-workbench__render-table">
-            <thead>
-              <tr>
-                <th>Shot Order</th>
-                <th>Video Path</th>
-                <th>Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in renderPlanItems" :key="item.shot_id">
-                <td>#{{ item.order }}</td>
-                <td>{{ item.video_path }}</td>
-                <td>{{ item.duration_seconds }}s</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section class="video-workbench__render-pipeline" aria-label="Timeline Editor">
-          <div>
-            <p class="video-workbench__eyebrow">Timeline Editor</p>
-            <h3>Timeline</h3>
-          </div>
-          <table v-if="timelineShots.length" class="video-workbench__render-table">
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Title</th>
-                <th>Video Status</th>
-                <th>Duration</th>
-                <th>Move</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(shot, index) in timelineShots" :key="shot.shot_id">
-                <td>#{{ shot.order }}</td>
-                <td>{{ shot.title }}</td>
-                <td>{{ videoStatus(shot) }}</td>
-                <td>{{ shot.duration_seconds }}s</td>
-                <td class="video-workbench__timeline-actions">
-                  <button
-                    type="button"
-                    :data-testid="`move-shot-${shot.shot_id}-up`"
-                    :disabled="index === 0"
-                    @click="moveTimelineShot(index, -1)"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    :data-testid="`move-shot-${shot.shot_id}-down`"
-                    :disabled="index === timelineShots.length - 1"
-                    @click="moveTimelineShot(index, 1)"
-                  >
-                    ↓
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-else class="video-workbench__muted">暂无 Timeline。</p>
-          <button
-            type="button"
-            data-testid="save-timeline"
-            :disabled="isSavingTimeline || !timelineShots.length"
-            @click="handleSaveTimeline"
-          >
-            {{ isSavingTimeline ? 'Saving timeline...' : 'Save Timeline' }}
-          </button>
-          <p v-if="timelineMessage" class="video-workbench__upload-message">
-            {{ timelineMessage }}
-          </p>
-          <div v-if="timelineShots.length" class="video-workbench__timeline-preview">
-            <h4>Timeline Preview</h4>
-            <ol data-testid="timeline-preview">
-              <li v-for="(shot, index) in timelineShots" :key="`preview-${shot.shot_id}`">
-                {{ index + 1 }}. {{ shot.title }}
-              </li>
-            </ol>
-          </div>
-        </section>
-      </section>
+      <AssetLibraryPanel
+        v-if="selectedProject"
+        v-model:upload-asset-type="uploadAssetType"
+        v-model:nano-banana-prompt="nanoBananaPrompt"
+        v-model:keyframe-prompt="keyframePrompt"
+        :selected-project="selectedProject"
+        :selected-shot="selectedShot"
+        :upload-accept="uploadAccept"
+        :selected-upload-file="selectedUploadFile"
+        :is-uploading-asset="isUploadingAsset"
+        :upload-message="uploadMessage"
+        :is-generating-image="isGeneratingImage"
+        :generation-message="generationMessage"
+        :is-generating-keyframe="isGeneratingKeyframe"
+        :keyframe-message="keyframeMessage"
+        :asset-library-groups="assetLibraryGroups"
+        :saving-asset-type="savingAssetType"
+        :render-plan-items="renderPlanItems"
+        :render-plan-message="renderPlanMessage"
+        :is-generating-render-plan="isGeneratingRenderPlan"
+        :is-exporting-render-plan="isExportingRenderPlan"
+        :timeline-shots="timelineShots"
+        :timeline-message="timelineMessage"
+        :is-saving-timeline="isSavingTimeline"
+        :can-preview-asset="canPreviewAsset"
+        @select-upload-file="handleSelectUploadFile"
+        @upload-asset="handleUploadAsset"
+        @generate-image="handleGenerateImage"
+        @generate-keyframe="handleGenerateKeyframe"
+        @bind-library-asset="handleBindLibraryAsset"
+        @generate-render-plan="handleGenerateRenderPlan"
+        @export-render-plan="handleExportRenderPlan"
+        @move-timeline-shot="moveTimelineShot"
+        @save-timeline="handleSaveTimeline"
+      />
 
       <header class="video-workbench__header">
         <div>
@@ -412,7 +98,7 @@
         v-model="storyboardText"
         aria-label="粘贴 Google AI Studio 分镜文本"
         placeholder="粘贴 Google AI Studio 分镜文本..."
-      ></textarea>
+      />
 
       <p v-if="error" class="video-workbench__error">{{ error }}</p>
 
@@ -438,19 +124,19 @@
                 v-model="assetPaths[asset.type]"
                 type="text"
                 :placeholder="asset.placeholder"
-              />
+              >
               <input
                 :id="`asset-${asset.type}-file`"
                 type="file"
                 :accept="asset.accept"
                 @change="handleSelectAssetFile(asset.type, $event)"
-              />
+              >
               <div v-if="assetPreviews[asset.type]" class="video-workbench__asset-preview">
                 <img
                   v-if="assetPreviews[asset.type].kind === 'image'"
                   :src="assetPreviews[asset.type].url"
                   :alt="`${asset.label}预览`"
-                />
+                >
                 <video
                   v-else
                   :src="assetPreviews[asset.type].url"
@@ -468,75 +154,22 @@
             </div>
           </section>
 
-          <section class="video-workbench__video-generator" aria-label="Video Generator">
-            <h4>Video Generator</h4>
-            <div class="video-workbench__field">
-              <label for="video-provider">Provider</label>
-              <select id="video-provider" v-model="selectedVideoProvider">
-                <option value="mock">Mock Provider</option>
-                <option value="jimeng">Jimeng Provider</option>
-              </select>
-            </div>
-            <p class="video-workbench__muted">Current Provider: {{ selectedVideoProviderLabel }}</p>
-            <p class="video-workbench__muted">
-              Current Keyframe: {{ selectedShot.keyframe_path || '未绑定' }}
-            </p>
-            <p v-if="!selectedShot.keyframe_path" class="video-workbench__muted">
-              Please generate or bind a keyframe first.
-            </p>
-            <button
-              type="button"
-              data-testid="generate-video"
-              :disabled="isGeneratingVideo || !selectedProject || !selectedShot.keyframe_path"
-              @click="handleGenerateVideo"
-            >
-              {{ isGeneratingVideo ? 'Generating video...' : 'Generate Video' }}
-            </button>
-            <p v-if="videoMessage" class="video-workbench__upload-message">{{ videoMessage }}</p>
-            <div v-if="assetPreviews.video" class="video-workbench__asset-preview">
-              <video :src="assetPreviews.video.url" controls aria-label="视频预览" />
-            </div>
-
-            <section class="video-workbench__video-job" aria-label="Jimeng REST Job">
-              <h5>Jimeng REST Job</h5>
-              <p class="video-workbench__muted">
-                Job status: {{ videoJob?.status || 'not submitted' }}
-              </p>
-              <div class="video-workbench__render-actions">
-                <button
-                  type="button"
-                  data-testid="submit-video-job"
-                  :disabled="
-                    isSubmittingVideoJob ||
-                    !selectedProject ||
-                    !selectedShot ||
-                    !selectedShot.keyframe_path
-                  "
-                  @click="handleSubmitVideoJob"
-                >
-                  {{ isSubmittingVideoJob ? 'Submitting Jimeng Job...' : 'Submit Jimeng Job' }}
-                </button>
-                <button
-                  type="button"
-                  data-testid="poll-video-job"
-                  :disabled="isPollingVideoJob || !videoJob"
-                  @click="handlePollVideoJob"
-                >
-                  {{ isPollingVideoJob ? 'Polling Job...' : 'Poll Job' }}
-                </button>
-              </div>
-              <p v-if="videoJobMessage" class="video-workbench__upload-message">
-                {{ videoJobMessage }}
-              </p>
-              <div v-if="videoJob?.output_path" class="video-workbench__asset-preview">
-                <video
-                  :src="videoJob.output_path"
-                  controls
-                  aria-label="Jimeng job video preview"
-                />
-              </div>
-            </section>
-          </section>
+          <VideoJobPanel
+            v-model:selected-video-provider="selectedVideoProvider"
+            :selected-project="selectedProject"
+            :selected-shot="selectedShot"
+            :selected-video-provider-label="selectedVideoProviderLabel"
+            :is-generating-video="isGeneratingVideo"
+            :video-message="videoMessage"
+            :asset-previews="assetPreviews"
+            :video-job="videoJob"
+            :video-job-message="videoJobMessage"
+            :is-submitting-video-job="isSubmittingVideoJob"
+            :is-polling-video-job="isPollingVideoJob"
+            @generate-video="handleGenerateVideo"
+            @submit-video-job="handleSubmitVideoJob"
+            @poll-video-job="handlePollVideoJob"
+          />
         </aside>
 
         <ValidationPanel :report="validationReport" />
@@ -552,8 +185,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import AssetLibraryPanel from '../components/video-workbench/AssetLibraryPanel.vue'
+import ProviderSettingsPanel from '../components/video-workbench/ProviderSettingsPanel.vue'
 import ShotTimeline from '../components/video-workbench/ShotTimeline.vue'
 import ValidationPanel from '../components/video-workbench/ValidationPanel.vue'
+import VideoJobPanel from '../components/video-workbench/VideoJobPanel.vue'
 import {
   bindShotAsset,
   createProjectAsset,
@@ -564,7 +200,6 @@ import {
   generateProjectImage,
   generateRenderPlan,
   generateVideo,
-  getVideoJob,
   getJimengSettings,
   getNanoBananaProviderSettings,
   getProjectShots,
@@ -600,7 +235,7 @@ const uploadAssetType = ref('image')
 const selectedUploadFile = ref(null)
 const isUploadingAsset = ref(false)
 const uploadMessage = ref('')
-const nanoBananaSettings = ref({ nano_banana_api_key: '', nano_banana_base_url: '' })
+const nanoBananaSettings = ref({ api_key: '', base_url: '', enabled: true })
 const jimengSettings = ref({
   api_key: '',
   base_url: '',
@@ -714,8 +349,9 @@ async function loadProviderSettings() {
       getJimengSettings()
     ])
     nanoBananaSettings.value = {
-      nano_banana_api_key: '',
-      nano_banana_base_url: payload.settings?.base_url || payload.settings?.nano_banana_base_url || ''
+      api_key: '',
+      base_url: payload.settings?.base_url || '',
+      enabled: payload.settings?.enabled !== false
     }
     jimengSettings.value = {
       api_key: '',
@@ -761,8 +397,9 @@ async function handleSaveProviderSettings() {
 
   try {
     await saveNanoBananaProviderSettings({
-      nano_banana_api_key: nanoBananaSettings.value.nano_banana_api_key.trim(),
-      nano_banana_base_url: nanoBananaSettings.value.nano_banana_base_url.trim()
+      api_key: nanoBananaSettings.value.api_key.trim(),
+      base_url: nanoBananaSettings.value.base_url.trim(),
+      enabled: nanoBananaSettings.value.enabled
     })
     providerMessage.value = 'Provider settings saved.'
   } catch (err) {
@@ -1247,10 +884,6 @@ function canPreviewAsset(asset) {
   return ['image', 'keyframe', 'video'].includes(asset.asset_type)
 }
 
-function videoStatus(shot) {
-  return shot.video_path ? 'Video ready' : 'Video missing'
-}
-
 function buildValidationReport(currentShots) {
   const missingAssets = currentShots.filter((shot) => {
     if (shot.kind === 'key_node_video') {
@@ -1273,7 +906,7 @@ function buildValidationReport(currentShots) {
 }
 </script>
 
-<style scoped>
+<style>
 .video-workbench {
   min-height: 100vh;
   display: grid;

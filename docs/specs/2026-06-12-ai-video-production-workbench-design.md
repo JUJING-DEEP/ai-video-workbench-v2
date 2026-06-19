@@ -460,3 +460,56 @@ The approved direction is:
 - Include audio, visual, and subtitle alignment in MVP.
 - Use browser agents as later execution plugins.
 - For key node video shots, generate a Nano banana keyframe first, then use that keyframe with the I2V prompt in Jimeng.
+
+---
+
+## v1.0.0-beta.1 Status Addendum
+
+The current released baseline is `v1.0.0-beta.1`.
+
+Implemented beta capabilities include:
+
+- Project creation and project listing.
+- Storyboard import into persisted shot records.
+- Asset upload, asset library listing, and asset binding for image, keyframe, and video paths.
+- Nano Banana provider settings, image generation, and keyframe generation.
+- Jimeng provider settings, mock/Jimeng video generation, and Jimeng REST job submit/poll workflow.
+- Timeline reorder, timeline persistence, render plan generation, and render plan export.
+- SRT/ASS subtitle generation utilities and media probing helpers.
+- Vue workbench panels for provider settings, asset library, shot timeline, validation, render pipeline, timeline editing, and video jobs.
+
+API responses use a standard envelope:
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+Errors use:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "bad_request",
+    "message": "Human-readable error message."
+  }
+}
+```
+
+Provider settings use a unified public schema across Nano Banana and Jimeng:
+
+- `provider`
+- `enabled`
+- `configured`
+- `credentials`, with boolean configured flags only
+- non-secret fields such as `base_url`, `region`, `endpoint`, and `model`
+- `updated_at`
+
+Credential values can be submitted but must never be returned by API responses.
+
+Beta Hardening Sprint 2 explicitly excludes new providers, new AI models, new API capabilities, new pages, new data tables, real Jimeng integration beyond the existing REST workflow shape, subtitles/dubbing product workflows, ffmpeg rendering, and new AI capabilities.
+
+CI must pass backend tests, frontend tests, frontend build, and lint gates (`ruff check .` and `eslint .`).

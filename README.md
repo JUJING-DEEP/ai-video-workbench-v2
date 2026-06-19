@@ -1,4 +1,6 @@
-> 🚧 Project Status: Beta Hardening
+> 🚧 Project Status: v1.0.0-beta.1 / Beta Hardening Sprint 2
+>
+> Readiness Score: 84/100
 >
 > Current features:
 > - Storyboard management
@@ -37,9 +39,9 @@ This project helps scale an AI short-video workflow that typically involves:
 4. 使用即梦生成图生视频片段。
 5. 将图片、视频、音频和字幕严格对齐，组合成最终成片。
 
-The Phase 1 MVP focuses on the local workbench foundation: parsing fixed-format storyboard text, managing shot metadata, exporting prompt packages, validating timelines, generating subtitles, and preparing render plans.
+v1.0.0-beta.1 focuses on a stable local workbench foundation: parsing fixed-format storyboard text, managing shot metadata, uploading and binding assets, configuring providers, generating image/keyframe/video assets through existing providers, validating timelines, generating subtitles, and preparing render plans.
 
-Phase 1 MVP 聚焦本地工作台基础能力：解析固定格式分镜文本、管理镜头元数据、导出提示词任务包、校验时间线、生成字幕，并准备渲染计划。
+v1.0.0-beta.1 聚焦稳定的本地工作台基础能力：解析固定格式分镜文本、管理镜头元数据、上传和绑定素材、配置 Provider、通过现有 Provider 生成图片/关键帧/视频素材、校验时间线、生成字幕，并准备渲染计划。
 
 ---
 
@@ -214,7 +216,12 @@ curl http://127.0.0.1:8000/api/video-workbench/health
 Expected response / 预期返回：
 
 ```json
-{"status":"ok"}
+{
+  "success": true,
+  "data": {
+    "status": "ok"
+  }
+}
 ```
 
 ### Frontend / 前端
@@ -242,6 +249,14 @@ python -m pytest tests/video_workbench -v
 cd frontend
 npm run test
 npm run build
+npm run lint
+```
+
+Backend lint / 后端 lint：
+
+```bash
+cd backend
+ruff check .
 ```
 
 ---
@@ -258,7 +273,35 @@ Response / 返回：
 
 ```json
 {
-  "status": "ok"
+  "success": true,
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+All API responses use a standard envelope.
+
+所有 API 响应均使用统一 envelope。
+
+Successful response / 成功响应：
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+Error response / 错误响应：
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "bad_request",
+    "message": "Human-readable error message."
+  }
 }
 ```
 
@@ -280,34 +323,68 @@ Response / 返回：
 
 ```json
 {
-  "planning": {
-    "audio_duration_seconds": null,
-    "estimated_regular_images": null,
-    "estimated_key_nodes": null,
-    "estimated_batches": null,
-    "batch_size": null
-  },
-  "shots": [
-    {
-      "shot_id": 1,
-      "start_seconds": 0.0,
-      "end_seconds": 2.0,
-      "duration_seconds": 2.0,
-      "kind": "image",
-      "mode": "B",
-      "dialogue_zh": "你好",
-      "dialogue_en": "Hello",
-      "image_prompt": "Scene: Test",
-      "i2v_prompt": "",
-      "status": "parsed"
-    }
-  ]
+  "success": true,
+  "data": {
+    "planning": {
+      "audio_duration_seconds": null,
+      "estimated_regular_images": null,
+      "estimated_key_nodes": null,
+      "estimated_batches": null,
+      "batch_size": null
+    },
+    "shots": [
+      {
+        "shot_id": 1,
+        "start_seconds": 0.0,
+        "end_seconds": 2.0,
+        "duration_seconds": 2.0,
+        "kind": "image",
+        "mode": "B",
+        "dialogue_zh": "你好",
+        "dialogue_en": "Hello",
+        "image_prompt": "Scene: Test",
+        "i2v_prompt": "",
+        "status": "parsed"
+      }
+    ]
+  }
 }
 ```
 
-Invalid storyboard-like text returns `400 Bad Request` with a human-readable detail message.
+Invalid storyboard-like text returns `400 Bad Request` with `success: false` and `error.message`.
 
-格式异常的分镜文本会返回 `400 Bad Request`，并包含可读的错误说明。
+格式异常的分镜文本会返回 `400 Bad Request`，并通过 `success: false` 和 `error.message` 返回可读的错误说明。
+
+### Provider Settings Public Schema / Provider Settings 公开 Schema
+
+Nano Banana and Jimeng settings share the same non-secret response shape.
+
+Nano Banana 和 Jimeng settings 使用统一的非密钥响应结构。
+
+```json
+{
+  "success": true,
+  "data": {
+    "settings": {
+      "provider": "jimeng",
+      "configured": true,
+      "enabled": true,
+      "credentials": {
+        "api_key": true,
+        "access_key": true,
+        "secret_key": true
+      },
+      "base_url": "https://jimeng.example/generate",
+      "region": "cn-north-1",
+      "endpoint": "https://open.volcengineapi.com",
+      "model": "jimeng-v3",
+      "updated_at": "2026-06-19 08:00:00"
+    }
+  }
+}
+```
+
+Credential values can be submitted with `api_key`, `access_key`, and `secret_key`, but credential values are never returned.
 
 ---
 
@@ -336,7 +413,12 @@ Invalid storyboard-like text returns `400 Bad Request` with a human-readable det
 │   ├── src/
 │   │   ├── components/
 │   │   │   └── video-workbench/
+│   │   │       ├── AssetLibraryPanel.vue
+│   │   │       ├── ProviderSettingsPanel.vue
+│   │   │       ├── RenderPipelinePanel.vue
 │   │   │       ├── ShotTimeline.vue
+│   │   │       ├── TimelinePanel.vue
+│   │   │       ├── VideoJobPanel.vue
 │   │   │       └── ValidationPanel.vue
 │   │   ├── services/
 │   │   │   └── videoWorkbenchApi.js
@@ -347,9 +429,9 @@ Invalid storyboard-like text returns `400 Bad Request` with a human-readable det
 │   ├── package.json
 │   └── vite.config.js
 ├── docs/
-│   └── superpowers/
-│       ├── plans/
-│       └── specs/
+│   ├── demo-project.md
+│   ├── plans/
+│   └── specs/
 ├── SPEC.md
 └── README.md
 ```
@@ -377,21 +459,28 @@ video_projects/
 
 ---
 
-## 7. MVP Phase 1 Implemented / MVP Phase 1 已实现功能
+## 7. v1.0.0-beta.1 Implemented / v1.0.0-beta.1 已实现功能
 
 - Backend test harness with pytest.
 - Domain models for projects, shots, shot modes, shot kinds, and statuses.
 - Timecode parsing and formatting with boundary validation.
 - Storyboard parser for project planning metadata, Mode A, Mode B, and key-node I2V blocks.
 - SQLite repository for video projects and shots.
+- Asset upload, asset library, and image/keyframe/video binding.
+- Provider settings for Nano Banana and Jimeng with credential redaction.
+- Nano Banana image and keyframe generation endpoints.
+- Mock and Jimeng video generation endpoints.
+- Jimeng REST video job submit/poll workflow.
 - Safe local project storage and prompt package export.
 - Timeline validator for gaps, overlaps, missing assets, invalid durations, duplicate shot IDs, and audio mismatch.
 - SRT and ASS subtitle generation with ASS escaping and deterministic ordering.
 - Render-plan builder with missing asset and duplicate ID protection.
 - FFprobe duration wrapper with path-aware errors.
-- FastAPI routes for health and storyboard parsing.
+- Standard FastAPI response envelope for success and error responses.
+- FastAPI routes for project, storyboard, asset, provider, generation, timeline, and render-plan workflows.
 - Vue workbench route at `/video-workbench`.
-- Shot timeline and validation panel components.
+- Refactored Vue panels for provider settings, shot timeline, validation, render pipeline, timeline editing, and video jobs.
+- Ruff and ESLint lint gates in CI.
 - Automated backend and frontend tests.
 
 - 后端 pytest 测试基础设施。
@@ -399,14 +488,21 @@ video_projects/
 - 带边界校验的时间码解析与格式化。
 - 支持项目规划信息、模式 A、模式 B、关键节点 I2V 文本块的分镜解析器。
 - 用于视频项目和镜头数据的 SQLite repository。
+- 素材上传、素材库，以及图片/关键帧/视频绑定。
+- Nano Banana 和即梦 Provider Settings，密钥不会回传。
+- Nano Banana 图片和关键帧生成接口。
+- Mock 和即梦视频生成接口。
+- 即梦 REST 视频任务提交/轮询流程。
 - 安全的本地项目存储和提示词包导出。
 - 时间线校验器，可检测断档、重叠、缺失素材、非法时长、重复镜头编号和音频不匹配。
 - SRT 和 ASS 字幕生成，包含 ASS 转义和稳定排序。
 - 渲染计划生成器，包含缺失素材和重复 ID 防护。
 - 带路径上下文错误信息的 FFprobe 时长探测封装。
-- FastAPI 健康检查和分镜解析接口。
+- 成功和错误响应统一的 FastAPI response envelope。
+- 覆盖项目、分镜、素材、Provider、生成、Timeline、Render Plan 工作流的 FastAPI 接口。
 - Vue 工作台页面 `/video-workbench`。
-- 镜头时间线和校验面板组件。
+- 已拆分的 Vue 面板组件：Provider Settings、镜头时间线、校验、Render Pipeline、Timeline 编辑、Video Job。
+- CI 中的 Ruff 和 ESLint lint gate。
 - 后端与前端自动化测试。
 
 Verification completed / 已完成验证：
@@ -415,6 +511,8 @@ Verification completed / 已完成验证：
 cd backend && python -m pytest tests/video_workbench -v
 cd frontend && npm run test
 cd frontend && npm run build
+ruff check .
+cd frontend && npm run lint
 ```
 
 ---

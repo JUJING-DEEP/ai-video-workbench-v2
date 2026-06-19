@@ -5,7 +5,6 @@ import re
 from .models import ParsedStoryboard, ProjectPlanning, Shot, ShotKind, ShotMode
 from .timecode import parse_timecode
 
-
 DIVIDER_RE = re.compile(r"—{8,}")
 SHOT_HEADER_RE = re.compile(
     r"第\s*(\d+)\s*张图片\s*▏时间：\s*([0-9:]+)\s*[—-]\s*([0-9:]+)(.*)"

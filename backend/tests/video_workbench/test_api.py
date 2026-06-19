@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import Response
 
 from app.video_workbench.api import get_nano_banana_client, get_repository, router
 from app.video_workbench.nano_banana import (
@@ -17,6 +18,12 @@ from app.video_workbench.repository import VideoWorkbenchRepository
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        Response,
+        "__getitem__",
+        lambda response, key: response_data(response)[key],
+        raising=False,
+    )
     repository = VideoWorkbenchRepository(
         db_path=tmp_path / "video-workbench.db",
         projects_root=tmp_path / "projects",
@@ -35,6 +42,22 @@ STORYBOARD_TEXT = (
     "--- 提示词 ---\n"
     "Scene: Test"
 )
+
+
+def response_data(response):
+    payload = json.loads(response.content)
+    assert payload["success"] is True
+    return payload["data"]
+
+
+def response_error(response):
+    payload = json.loads(response.content)
+    assert payload["success"] is False
+    return payload["error"]
+
+
+def response_error_message(response):
+    return response_error(response)["message"]
 
 MULTI_SHOT_STORYBOARD_TEXT = (
     "第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）\n"
@@ -78,7 +101,19 @@ def test_video_workbench_health(client):
     response = client.get("/api/video-workbench/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response_data(response) == {"status": "ok"}
+
+
+def test_api_success_and_error_responses_use_standard_envelope(client):
+    success_response = client.get("/api/video-workbench/health")
+    assert success_response.status_code == 200
+    assert response_data(success_response) == {"status": "ok"}
+
+    error_response = client.post("/api/video-workbench/projects", json={"title": "   "})
+    assert error_response.status_code == 400
+    error = response_error(error_response)
+    assert error["code"] == "bad_request"
+    assert "title" in error["message"].lower()
 
 
 def test_parse_storyboard_endpoint(client):
@@ -88,7 +123,7 @@ def test_parse_storyboard_endpoint(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["shots"][0]["shot_id"] == 1
     assert payload["shots"][0]["dialogue_zh"] == "你好"
 
@@ -100,7 +135,7 @@ def test_parse_storyboard_endpoint_returns_400_for_malformed_storyboard(client):
     )
 
     assert response.status_code == 400
-    assert "parse" in response.json()["detail"].lower()
+    assert "parse" in response_error_message(response).lower()
 
 
 def test_create_and_list_projects(client):
@@ -115,7 +150,7 @@ def test_create_and_list_projects(client):
     )
 
     assert create_response.status_code == 200
-    project = create_response.json()["project"]
+    project = response_data(create_response)["project"]
     assert project["id"] == 1
     assert project["title"] == "Revenge Bedtime"
     assert project["slug"] == "revenge-bedtime"
@@ -123,21 +158,21 @@ def test_create_and_list_projects(client):
     list_response = client.get("/api/video-workbench/projects")
 
     assert list_response.status_code == 200
-    assert list_response.json()["projects"][0]["id"] == project["id"]
+    assert response_data(list_response)["projects"][0]["id"] == project["id"]
 
 
 def test_create_project_requires_title(client):
     response = client.post("/api/video-workbench/projects", json={"title": "   "})
 
     assert response.status_code == 400
-    assert "title" in response.json()["detail"].lower()
+    assert "title" in response_error_message(response).lower()
 
 
 def test_import_storyboard_replaces_project_shots(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Storyboard Import"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     import_response = client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
@@ -145,7 +180,7 @@ def test_import_storyboard_replaces_project_shots(client):
     )
 
     assert import_response.status_code == 200
-    payload = import_response.json()
+    payload = response_data(import_response)
     assert payload["project"]["id"] == project_id
     assert payload["shots"][0]["shot_id"] == 1
     assert payload["shots"][0]["dialogue_zh"] == "你好"
@@ -153,7 +188,7 @@ def test_import_storyboard_replaces_project_shots(client):
     shots_response = client.get(f"/api/video-workbench/projects/{project_id}/shots")
 
     assert shots_response.status_code == 200
-    assert shots_response.json()["shots"][0]["image_prompt"] == "Scene: Test"
+    assert response_data(shots_response)["shots"][0]["image_prompt"] == "Scene: Test"
 
 
 def test_import_storyboard_returns_404_for_missing_project(client):
@@ -163,14 +198,14 @@ def test_import_storyboard_returns_404_for_missing_project(client):
     )
 
     assert response.status_code == 404
-    assert "project not found" in response.json()["detail"].lower()
+    assert "project not found" in response_error_message(response).lower()
 
 
 def test_bind_shot_asset_updates_path_and_status(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Asset Binding"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -182,7 +217,7 @@ def test_bind_shot_asset_updates_path_and_status(client):
     )
 
     assert response.status_code == 200
-    shot = response.json()["shot"]
+    shot = response_data(response)["shot"]
     assert shot["image_path"] == "/renders/shot-001.png"
     assert shot["status"] == "image_ready"
 
@@ -191,7 +226,7 @@ def test_bind_shot_asset_rejects_unknown_asset_type(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Bad Asset Type"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -203,14 +238,14 @@ def test_bind_shot_asset_rejects_unknown_asset_type(client):
     )
 
     assert response.status_code == 400
-    assert "asset_type" in response.json()["detail"]
+    assert "asset_type" in response_error_message(response)
 
 
 def test_bind_shot_asset_requires_path(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Path"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -222,14 +257,14 @@ def test_bind_shot_asset_requires_path(client):
     )
 
     assert response.status_code == 400
-    assert "path" in response.json()["detail"].lower()
+    assert "path" in response_error_message(response).lower()
 
 
 def test_bind_shot_asset_rejects_path_traversal(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Unsafe Bound Path"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -241,14 +276,14 @@ def test_bind_shot_asset_rejects_path_traversal(client):
     )
 
     assert response.status_code == 400
-    assert "path" in response.json()["detail"].lower()
+    assert "path" in response_error_message(response).lower()
 
 
 def test_create_project_asset_success(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Asset Library"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
@@ -256,7 +291,7 @@ def test_create_project_asset_success(client):
     )
 
     assert response.status_code == 200
-    asset = response.json()["asset"]
+    asset = response_data(response)["asset"]
     assert asset["id"] == 1
     assert asset["project_id"] == project_id
     assert asset["asset_type"] == "image"
@@ -269,7 +304,7 @@ def test_list_project_assets_success(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Asset List"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
         json={"asset_type": "image", "name": "Shot 001", "path": "/renders/shot-001.png"},
@@ -282,7 +317,7 @@ def test_list_project_assets_success(client):
     response = client.get(f"/api/video-workbench/projects/{project_id}/assets")
 
     assert response.status_code == 200
-    assets = response.json()["assets"]
+    assets = response_data(response)["assets"]
     assert [asset["asset_type"] for asset in assets] == ["image", "video"]
     assert [asset["name"] for asset in assets] == ["Shot 001", "Hook Video"]
 
@@ -291,7 +326,7 @@ def test_create_project_asset_rejects_unknown_asset_type(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Bad Library Asset Type"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
@@ -299,14 +334,14 @@ def test_create_project_asset_rejects_unknown_asset_type(client):
     )
 
     assert response.status_code == 400
-    assert "asset_type" in response.json()["detail"]
+    assert "asset_type" in response_error_message(response)
 
 
 def test_create_project_asset_requires_name(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Asset Name"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
@@ -314,14 +349,14 @@ def test_create_project_asset_requires_name(client):
     )
 
     assert response.status_code == 400
-    assert "name" in response.json()["detail"].lower()
+    assert "name" in response_error_message(response).lower()
 
 
 def test_create_project_asset_requires_path(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Asset Path"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
@@ -329,14 +364,14 @@ def test_create_project_asset_requires_path(client):
     )
 
     assert response.status_code == 400
-    assert "path" in response.json()["detail"].lower()
+    assert "path" in response_error_message(response).lower()
 
 
 def test_upload_project_asset_saves_file_and_returns_metadata(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Upload Asset"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/upload",
@@ -345,7 +380,7 @@ def test_upload_project_asset_saves_file_and_returns_metadata(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload == {
         "name": "shot-001.png",
         "path": f"data/uploads/{project_id}/shot-001.png",
@@ -358,7 +393,7 @@ def test_upload_project_asset_rejects_unknown_asset_type(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Bad Upload Type"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/upload",
@@ -367,14 +402,14 @@ def test_upload_project_asset_rejects_unknown_asset_type(client):
     )
 
     assert response.status_code == 400
-    assert "asset_type" in response.json()["detail"]
+    assert "asset_type" in response_error_message(response)
 
 
 def test_upload_project_asset_rejects_unsafe_filename(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Unsafe Upload Name"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/upload",
@@ -383,14 +418,14 @@ def test_upload_project_asset_rejects_unsafe_filename(client):
     )
 
     assert response.status_code == 400
-    assert "filename" in response.json()["detail"].lower()
+    assert "filename" in response_error_message(response).lower()
 
 
 def test_upload_project_asset_rejects_invalid_mime_for_asset_type(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Invalid Upload MIME"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/upload",
@@ -399,14 +434,14 @@ def test_upload_project_asset_rejects_invalid_mime_for_asset_type(client):
     )
 
     assert response.status_code == 400
-    assert "file type" in response.json()["detail"].lower()
+    assert "file type" in response_error_message(response).lower()
 
 
 def test_upload_project_asset_rejects_oversized_file(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Oversized Upload"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/upload",
@@ -415,14 +450,14 @@ def test_upload_project_asset_rejects_oversized_file(client):
     )
 
     assert response.status_code == 413
-    assert "too large" in response.json()["detail"].lower()
+    assert "too large" in response_error_message(response).lower()
 
 
 def test_upload_project_asset_rejects_existing_filename(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Duplicate Upload"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     first_response = client.post(
         f"/api/video-workbench/projects/{project_id}/upload",
@@ -437,7 +472,7 @@ def test_upload_project_asset_rejects_existing_filename(client):
 
     assert first_response.status_code == 200
     assert second_response.status_code == 409
-    assert Path(first_response.json()["path"]).read_bytes() == b"first"
+    assert Path(response_data(first_response)["path"]).read_bytes() == b"first"
 
 
 def test_save_and_get_nano_banana_provider_settings(client):
@@ -450,7 +485,7 @@ def test_save_and_get_nano_banana_provider_settings(client):
     )
 
     assert save_response.status_code == 200
-    settings = save_response.json()["settings"]
+    settings = response_data(save_response)["settings"]
     assert settings["provider"] == "nano_banana"
     assert settings["configured"] is True
     assert settings["enabled"] is True
@@ -459,7 +494,7 @@ def test_save_and_get_nano_banana_provider_settings(client):
     get_response = client.get("/api/video-workbench/provider-settings/nano-banana")
 
     assert get_response.status_code == 200
-    public_settings = get_response.json()["settings"]
+    public_settings = response_data(get_response)["settings"]
     assert public_settings["provider"] == "nano_banana"
     assert public_settings["configured"] is True
     assert public_settings["enabled"] is True
@@ -493,7 +528,7 @@ def test_provider_settings_put_does_not_return_credentials(client):
         assert "secret-jimeng-key" not in body
         assert "secret-access-key" not in body
         assert "secret-secret-key" not in body
-        settings = response.json()["settings"]
+        settings = response_data(response)["settings"]
         assert "api_key" not in settings
         assert "nano_banana_api_key" not in settings
         assert "access_key" not in settings
@@ -510,8 +545,8 @@ def test_provider_settings_get_does_not_return_api_key(client):
     )
     _save_jimeng_settings(client, api_key="secret-jimeng-key")
 
-    nano_settings = client.get("/api/video-workbench/provider-settings/nano-banana").json()["settings"]
-    jimeng_settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    nano_settings = client.get("/api/video-workbench/provider-settings/nano-banana")["settings"]
+    jimeng_settings = client.get("/api/video-workbench/provider-settings/jimeng")["settings"]
 
     for settings in (nano_settings, jimeng_settings):
         assert "api_key" not in settings
@@ -523,7 +558,7 @@ def test_provider_settings_get_does_not_return_api_key(client):
 def test_provider_settings_get_does_not_return_access_key(client):
     _save_jimeng_rest_settings(client, access_key="secret-access-key")
 
-    settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    settings = client.get("/api/video-workbench/provider-settings/jimeng")["settings"]
 
     assert "access_key" not in settings
     assert "secret-access-key" not in json.dumps(settings)
@@ -532,24 +567,71 @@ def test_provider_settings_get_does_not_return_access_key(client):
 def test_provider_settings_get_does_not_return_secret_key(client):
     _save_jimeng_rest_settings(client, secret_key="secret-secret-key")
 
-    settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    settings = client.get("/api/video-workbench/provider-settings/jimeng")["settings"]
 
     assert "secret_key" not in settings
     assert "secret-secret-key" not in json.dumps(settings)
 
 
 def test_provider_settings_reports_configured(client):
-    empty_settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    empty_settings = client.get("/api/video-workbench/provider-settings/jimeng")["settings"]
     assert empty_settings["provider"] == "jimeng"
     assert empty_settings["configured"] is False
     assert empty_settings["enabled"] is False
 
     _save_jimeng_rest_settings(client)
 
-    configured_settings = client.get("/api/video-workbench/provider-settings/jimeng").json()["settings"]
+    configured_settings = client.get("/api/video-workbench/provider-settings/jimeng")["settings"]
     assert configured_settings["provider"] == "jimeng"
     assert configured_settings["configured"] is True
     assert configured_settings["enabled"] is True
+
+
+def test_provider_settings_use_unified_public_schema(client):
+    nano_response = client.put(
+        "/api/video-workbench/provider-settings/nano-banana",
+        json={"api_key": "nano-secret", "base_url": "https://nano.example/generate"},
+    )
+    jimeng_response = client.put(
+        "/api/video-workbench/provider-settings/jimeng",
+        json={
+            "api_key": "jimeng-secret",
+            "base_url": "https://jimeng.example/generate",
+            "access_key": "access-secret",
+            "secret_key": "secret-secret",
+            "region": "cn-north-1",
+            "endpoint": "https://open.volcengineapi.com",
+            "model": "jimeng-v3",
+            "enabled": True,
+        },
+    )
+
+    nano = response_data(nano_response)["settings"]
+    jimeng = response_data(jimeng_response)["settings"]
+
+    assert nano["provider"] == "nano_banana"
+    assert nano["enabled"] is True
+    assert nano["configured"] is True
+    assert nano["credentials"] == {"api_key": True}
+    assert nano["base_url"] == "https://nano.example/generate"
+
+    assert jimeng["provider"] == "jimeng"
+    assert jimeng["enabled"] is True
+    assert jimeng["configured"] is True
+    assert jimeng["credentials"] == {
+        "api_key": True,
+        "access_key": True,
+        "secret_key": True,
+    }
+    assert jimeng["base_url"] == "https://jimeng.example/generate"
+    assert jimeng["region"] == "cn-north-1"
+    assert jimeng["endpoint"] == "https://open.volcengineapi.com"
+    assert jimeng["model"] == "jimeng-v3"
+
+    assert "nano-secret" not in json.dumps(nano)
+    assert "jimeng-secret" not in json.dumps(jimeng)
+    assert "access-secret" not in json.dumps(jimeng)
+    assert "secret-secret" not in json.dumps(jimeng)
 
 
 def test_provider_settings_rejects_invalid_base_url(client):
@@ -562,7 +644,7 @@ def test_provider_settings_rejects_invalid_base_url(client):
     )
 
     assert response.status_code == 400
-    assert "url" in response.json()["detail"].lower()
+    assert "url" in response_error_message(response).lower()
 
 
 def test_jimeng_settings_rejects_invalid_endpoint_url(client):
@@ -577,7 +659,7 @@ def test_jimeng_settings_rejects_invalid_endpoint_url(client):
     )
 
     assert response.status_code == 400
-    assert "url" in response.json()["detail"].lower()
+    assert "url" in response_error_message(response).lower()
 
 
 def test_jimeng_rest_settings_reports_non_secret_fields(client):
@@ -587,7 +669,7 @@ def test_jimeng_rest_settings_reports_non_secret_fields(client):
         endpoint="https://open.volcengineapi.com",
         model="jimeng-v3",
     )
-    settings = response.json()["settings"]
+    settings = response_data(response)["settings"]
 
     assert response.status_code == 200
     assert settings["provider"] == "jimeng"
@@ -604,7 +686,7 @@ def test_create_project_asset_persists_source_and_prompt(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Source Prompt"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
@@ -618,7 +700,7 @@ def test_create_project_asset_persists_source_and_prompt(client):
     )
 
     assert response.status_code == 200
-    asset = response.json()["asset"]
+    asset = response_data(response)["asset"]
     assert asset["source"] == "nano_banana"
     assert asset["prompt"] == "Draw a tired stickman."
 
@@ -627,7 +709,7 @@ def test_create_project_asset_rejects_path_traversal(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Unsafe Asset Path"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/assets",
@@ -635,7 +717,7 @@ def test_create_project_asset_rejects_path_traversal(client):
     )
 
     assert response.status_code == 400
-    assert "path" in response.json()["detail"].lower()
+    assert "path" in response_error_message(response).lower()
 
 
 def test_generate_image_creates_asset_from_nano_banana(client):
@@ -650,7 +732,7 @@ def test_generate_image_creates_asset_from_nano_banana(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Generated Image"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/generate-image",
@@ -658,13 +740,13 @@ def test_generate_image_creates_asset_from_nano_banana(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["asset_type"] == "image"
     assert payload["image_path"].startswith(f"data/uploads/{project_id}/generated/")
     assert payload["asset_id"] == 1
     assert Path(payload["image_path"]).read_bytes() == b"generated-image"
 
-    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["source"] == "nano_banana"
     assert assets[0]["prompt"] == "Draw a tired stickman."
 
@@ -673,7 +755,7 @@ def test_generate_image_rejects_missing_prompt(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Generate Prompt"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/generate-image",
@@ -681,7 +763,7 @@ def test_generate_image_rejects_missing_prompt(client):
     )
 
     assert response.status_code == 400
-    assert "prompt" in response.json()["detail"].lower()
+    assert "prompt" in response_error_message(response).lower()
 
 
 def test_generate_image_returns_invalid_key_error(client):
@@ -696,7 +778,7 @@ def test_generate_image_returns_invalid_key_error(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Invalid Key"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/generate-image",
@@ -704,7 +786,7 @@ def test_generate_image_returns_invalid_key_error(client):
     )
 
     assert response.status_code == 401
-    assert "invalid" in response.json()["detail"].lower()
+    assert "invalid" in response_error_message(response).lower()
 
 
 def test_generate_image_returns_timeout_error(client):
@@ -719,7 +801,7 @@ def test_generate_image_returns_timeout_error(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Timeout"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/generate-image",
@@ -727,7 +809,7 @@ def test_generate_image_returns_timeout_error(client):
     )
 
     assert response.status_code == 504
-    assert "timeout" in response.json()["detail"].lower()
+    assert "timeout" in response_error_message(response).lower()
 
 
 def test_generate_image_returns_provider_error(client):
@@ -742,7 +824,7 @@ def test_generate_image_returns_provider_error(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Provider Error"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(
         f"/api/video-workbench/projects/{project_id}/generate-image",
@@ -750,7 +832,7 @@ def test_generate_image_returns_provider_error(client):
     )
 
     assert response.status_code == 502
-    assert "provider" in response.json()["detail"].lower()
+    assert "provider" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_success(client):
@@ -765,7 +847,7 @@ def test_generate_keyframe_success(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Generated Keyframe"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -777,7 +859,7 @@ def test_generate_keyframe_success(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["asset_type"] == "keyframe"
     assert payload["shot_id"] == 1
     assert payload["asset_id"] == 1
@@ -789,7 +871,7 @@ def test_generate_keyframe_empty_prompt(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Keyframe Prompt"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -801,7 +883,7 @@ def test_generate_keyframe_empty_prompt(client):
     )
 
     assert response.status_code == 400
-    assert "prompt" in response.json()["detail"].lower()
+    assert "prompt" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_unknown_project(client):
@@ -811,7 +893,7 @@ def test_generate_keyframe_unknown_project(client):
     )
 
     assert response.status_code == 404
-    assert "project" in response.json()["detail"].lower()
+    assert "project" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_unknown_shot(client):
@@ -825,7 +907,7 @@ def test_generate_keyframe_unknown_shot(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Keyframe Shot"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -837,14 +919,14 @@ def test_generate_keyframe_unknown_shot(client):
     )
 
     assert response.status_code == 404
-    assert "shot" in response.json()["detail"].lower()
+    assert "shot" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_missing_provider_settings(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Missing Provider Settings"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -856,7 +938,7 @@ def test_generate_keyframe_missing_provider_settings(client):
     )
 
     assert response.status_code == 400
-    assert "provider settings" in response.json()["detail"].lower()
+    assert "provider settings" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_creates_keyframe_asset(client):
@@ -871,7 +953,7 @@ def test_generate_keyframe_creates_keyframe_asset(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Keyframe Asset"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -882,7 +964,7 @@ def test_generate_keyframe_creates_keyframe_asset(client):
         json={"prompt": "Draw a keyframe."},
     )
 
-    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["asset_type"] == "keyframe"
     assert assets[0]["source"] == "nano_banana"
     assert assets[0]["prompt"] == "Draw a keyframe."
@@ -900,18 +982,19 @@ def test_generate_keyframe_binds_to_shot(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Bind Keyframe"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
     )
 
-    payload = client.post(
+    response = client.post(
         f"/api/video-workbench/projects/{project_id}/shots/1/generate-keyframe",
         json={"prompt": "Draw a keyframe."},
-    ).json()
+    )
+    payload = response_data(response)
 
-    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots").json()["shots"][0]
+    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots")["shots"][0]
     assert shot["keyframe_path"] == payload["path"]
 
 
@@ -927,7 +1010,7 @@ def test_generate_keyframe_invalid_provider_key(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Keyframe Invalid Key"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -939,7 +1022,7 @@ def test_generate_keyframe_invalid_provider_key(client):
     )
 
     assert response.status_code == 401
-    assert "invalid" in response.json()["detail"].lower()
+    assert "invalid" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_provider_timeout(client):
@@ -954,7 +1037,7 @@ def test_generate_keyframe_provider_timeout(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Keyframe Timeout"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -966,7 +1049,7 @@ def test_generate_keyframe_provider_timeout(client):
     )
 
     assert response.status_code == 504
-    assert "timeout" in response.json()["detail"].lower()
+    assert "timeout" in response_error_message(response).lower()
 
 
 def test_generate_keyframe_provider_error(client):
@@ -981,7 +1064,7 @@ def test_generate_keyframe_provider_error(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Keyframe Provider Error"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -993,14 +1076,14 @@ def test_generate_keyframe_provider_error(client):
     )
 
     assert response.status_code == 502
-    assert "provider" in response.json()["detail"].lower()
+    assert "provider" in response_error_message(response).lower()
 
 
 def _create_project_with_shot(client, title="Video Project"):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": title},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -1026,7 +1109,7 @@ def _create_project_with_multi_shots(client, title="Render Project"):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": title},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": MULTI_SHOT_STORYBOARD_TEXT},
@@ -1045,7 +1128,7 @@ def test_jimeng_settings_save(client):
     response = _save_jimeng_settings(client)
 
     assert response.status_code == 200
-    settings = response.json()["settings"]
+    settings = response_data(response)["settings"]
     assert settings["provider"] == "jimeng"
     assert settings["configured"] is True
     assert settings["base_url"] == "https://jimeng.example/generate"
@@ -1058,7 +1141,7 @@ def test_jimeng_settings_load(client):
     response = client.get("/api/video-workbench/provider-settings/jimeng")
 
     assert response.status_code == 200
-    settings = response.json()["settings"]
+    settings = response_data(response)["settings"]
     assert settings["provider"] == "jimeng"
     assert settings["configured"] is True
     assert settings["enabled"] is True
@@ -1076,7 +1159,7 @@ def test_generate_video_success(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["asset_type"] == "video"
     assert payload["shot_id"] == 1
     assert payload["asset_id"] == 1
@@ -1094,7 +1177,7 @@ def test_generate_video_without_keyframe(client):
     )
 
     assert response.status_code == 400
-    assert "keyframe" in response.json()["detail"].lower()
+    assert "keyframe" in response_error_message(response).lower()
 
 
 def test_generate_video_unknown_project(client):
@@ -1104,7 +1187,7 @@ def test_generate_video_unknown_project(client):
     )
 
     assert response.status_code == 404
-    assert "project" in response.json()["detail"].lower()
+    assert "project" in response_error_message(response).lower()
 
 
 def test_generate_video_unknown_shot(client):
@@ -1117,7 +1200,7 @@ def test_generate_video_unknown_shot(client):
     )
 
     assert response.status_code == 404
-    assert "shot" in response.json()["detail"].lower()
+    assert "shot" in response_error_message(response).lower()
 
 
 def test_generate_video_creates_asset(client):
@@ -1130,7 +1213,7 @@ def test_generate_video_creates_asset(client):
         json={"provider": "jimeng"},
     )
 
-    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["asset_type"] == "video"
     assert assets[0]["source"] == "jimeng"
     assert assets[0]["path"].startswith(f"data/uploads/{project_id}/generated/videos/")
@@ -1141,12 +1224,13 @@ def test_generate_video_binds_to_shot(client):
     project_id = _create_project_with_shot(client, "Bind Video")
     _bind_keyframe(client, project_id)
 
-    payload = client.post(
+    response = client.post(
         f"/api/video-workbench/projects/{project_id}/shots/1/generate-video",
         json={"provider": "jimeng"},
-    ).json()
+    )
+    payload = response_data(response)
 
-    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots").json()["shots"][0]
+    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots")["shots"][0]
     assert shot["video_path"] == payload["video_path"]
 
 
@@ -1161,7 +1245,7 @@ def test_provider_timeout(client):
     )
 
     assert response.status_code == 504
-    assert "timeout" in response.json()["detail"].lower()
+    assert "timeout" in response_error_message(response).lower()
 
 
 def test_provider_error(client):
@@ -1175,7 +1259,7 @@ def test_provider_error(client):
     )
 
     assert response.status_code == 502
-    assert "provider" in response.json()["detail"].lower()
+    assert "provider" in response_error_message(response).lower()
 
 
 def test_generate_render_plan(client):
@@ -1186,7 +1270,7 @@ def test_generate_render_plan(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["project_id"] == project_id
     assert payload["items"] == [
         {
@@ -1208,12 +1292,12 @@ def test_generate_render_plan_empty_project(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Empty Render Project"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
 
     response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
 
     assert response.status_code == 200
-    assert response.json()["items"] == []
+    assert response_data(response)["items"] == []
 
 
 def test_generate_render_plan_only_includes_video_shots(client):
@@ -1223,20 +1307,21 @@ def test_generate_render_plan_only_includes_video_shots(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
 
     assert response.status_code == 200
-    items = response.json()["items"]
+    items = response_data(response)["items"]
     assert [item["shot_id"] for item in items] == [2]
 
 
 def test_get_render_plan(client):
     project_id = _create_project_with_multi_shots(client, "Get Render Plan")
     _bind_video(client, project_id, 1, "/renders/shot-001.mp4")
-    created = client.post(f"/api/video-workbench/projects/{project_id}/render-plan").json()
+    created_response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
+    created = response_data(created_response)
 
     response = client.get(f"/api/video-workbench/projects/{project_id}/render-plan")
 
     assert response.status_code == 200
-    assert response.json()["id"] == created["id"]
-    assert response.json()["items"] == created["items"]
+    assert response_data(response)["id"] == created["id"]
+    assert response_data(response)["items"] == created["items"]
 
 
 def test_export_render_plan(client):
@@ -1247,7 +1332,7 @@ def test_export_render_plan(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan/export")
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["path"] == f"data/exports/{project_id}/render-plan.json"
     assert payload["render_plan"]["project_id"] == project_id
     assert payload["render_plan"]["shots"] == [
@@ -1267,7 +1352,7 @@ def test_export_file_created(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/render-plan/export")
 
     assert response.status_code == 200
-    path = Path(response.json()["path"])
+    path = Path(response_data(response)["path"])
     assert path.exists()
     exported = json.loads(path.read_text())
     assert exported["project_id"] == project_id
@@ -1283,7 +1368,7 @@ def test_reorder_shots(client):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"project_id": project_id, "shot_ids": [3, 1, 2]}
+    assert response_data(response) == {"project_id": project_id, "shot_ids": [3, 1, 2]}
 
 
 def test_reorder_unknown_project(client):
@@ -1293,7 +1378,7 @@ def test_reorder_unknown_project(client):
     )
 
     assert response.status_code == 404
-    assert "project" in response.json()["detail"].lower()
+    assert "project" in response_error_message(response).lower()
 
 
 def test_reorder_invalid_shot(client):
@@ -1305,7 +1390,7 @@ def test_reorder_invalid_shot(client):
     )
 
     assert response.status_code == 400
-    assert "shot" in response.json()["detail"].lower()
+    assert "shot" in response_error_message(response).lower()
 
 
 def test_get_timeline(client):
@@ -1315,8 +1400,8 @@ def test_get_timeline(client):
     response = client.get(f"/api/video-workbench/projects/{project_id}/timeline")
 
     assert response.status_code == 200
-    assert response.json()["project_id"] == project_id
-    assert response.json()["shots"] == [
+    assert response_data(response)["project_id"] == project_id
+    assert response_data(response)["shots"] == [
         {
             "shot_id": 1,
             "order": 1,
@@ -1351,8 +1436,8 @@ def test_timeline_order_persistence(client):
     response = client.get(f"/api/video-workbench/projects/{project_id}/timeline")
 
     assert response.status_code == 200
-    assert [shot["shot_id"] for shot in response.json()["shots"]] == [3, 1, 2]
-    assert [shot["order"] for shot in response.json()["shots"]] == [1, 2, 3]
+    assert [shot["shot_id"] for shot in response_data(response)["shots"]] == [3, 1, 2]
+    assert [shot["order"] for shot in response_data(response)["shots"]] == [1, 2, 3]
 
 
 def test_unknown_provider(client):
@@ -1365,7 +1450,7 @@ def test_unknown_provider(client):
     )
 
     assert response.status_code == 400
-    assert "provider" in response.json()["detail"].lower()
+    assert "provider" in response_error_message(response).lower()
 
 
 def test_disabled_provider(client):
@@ -1382,7 +1467,7 @@ def test_disabled_provider(client):
     )
 
     assert response.status_code == 403
-    assert "disabled" in response.json()["detail"].lower()
+    assert "disabled" in response_error_message(response).lower()
 
 
 def test_generate_video_with_mock(client):
@@ -1395,11 +1480,11 @@ def test_generate_video_with_mock(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["asset_type"] == "video"
     assert payload["video_path"].startswith(f"data/uploads/{project_id}/generated/videos/")
     assert Path(payload["video_path"]).read_bytes().startswith(b"mock-video")
-    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["source"] == "mock"
 
 
@@ -1414,10 +1499,10 @@ def test_generate_video_with_jimeng(client):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response_data(response)
     assert payload["asset_type"] == "video"
     assert Path(payload["video_path"]).read_bytes().startswith(b"jimeng-video")
-    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["source"] == "jimeng"
 
 
@@ -1451,7 +1536,7 @@ def test_create_video_job_success(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
 
     assert response.status_code == 200
-    job = response.json()["job"]
+    job = response_data(response)["job"]
     assert job["project_id"] == project_id
     assert job["shot_id"] == 1
     assert job["provider"] == "jimeng"
@@ -1472,7 +1557,7 @@ def test_video_workbench_smoke_project_shot_keyframe_video_render_plan(client):
     project_id = client.post(
         "/api/video-workbench/projects",
         json={"title": "Smoke Chain"},
-    ).json()["project"]["id"]
+    )["project"]["id"]
     storyboard = client.post(
         f"/api/video-workbench/projects/{project_id}/storyboard",
         json={"text": STORYBOARD_TEXT},
@@ -1488,14 +1573,14 @@ def test_video_workbench_smoke_project_shot_keyframe_video_render_plan(client):
     render_plan = client.post(f"/api/video-workbench/projects/{project_id}/render-plan")
 
     assert storyboard.status_code == 200
-    assert storyboard.json()["shots"][0]["shot_id"] == 1
+    assert response_data(storyboard)["shots"][0]["shot_id"] == 1
     assert keyframe.status_code == 200
-    assert keyframe.json()["asset_type"] == "keyframe"
+    assert response_data(keyframe)["asset_type"] == "keyframe"
     assert video.status_code == 200
-    assert video.json()["asset_type"] == "video"
+    assert response_data(video)["asset_type"] == "video"
     assert render_plan.status_code == 200
-    assert render_plan.json()["items"][0]["shot_id"] == 1
-    assert render_plan.json()["items"][0]["video_path"] == video.json()["video_path"]
+    assert response_data(render_plan)["items"][0]["shot_id"] == 1
+    assert response_data(render_plan)["items"][0]["video_path"] == response_data(video)["video_path"]
 
 
 def test_create_video_job_without_keyframe(client):
@@ -1505,7 +1590,7 @@ def test_create_video_job_without_keyframe(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
 
     assert response.status_code == 400
-    assert "keyframe" in response.json()["detail"].lower()
+    assert "keyframe" in response_error_message(response).lower()
 
 
 def test_create_video_job_disabled_provider(client):
@@ -1516,7 +1601,7 @@ def test_create_video_job_disabled_provider(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
 
     assert response.status_code == 403
-    assert "disabled" in response.json()["detail"].lower()
+    assert "disabled" in response_error_message(response).lower()
 
 
 def test_create_video_job_missing_credentials(client):
@@ -1527,47 +1612,47 @@ def test_create_video_job_missing_credentials(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")
 
     assert response.status_code == 400
-    assert "credentials" in response.json()["detail"].lower()
+    assert "credentials" in response_error_message(response).lower()
 
 
 def test_get_video_job(client):
     _save_jimeng_rest_settings(client)
     project_id = _create_project_with_shot(client, "Get REST Video Job")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.get(f"/api/video-workbench/video-jobs/{created['id']}")
 
     assert response.status_code == 200
-    assert response.json()["job"]["id"] == created["id"]
-    assert response.json()["job"]["status"] == "submitted"
+    assert response_data(response)["job"]["id"] == created["id"]
+    assert response_data(response)["job"]["status"] == "submitted"
 
 
 def test_poll_video_job_processing(client):
     _save_jimeng_rest_settings(client, model="processing")
     project_id = _create_project_with_shot(client, "Processing REST Video Job")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert response.status_code == 200
-    assert response.json()["job"]["status"] == "processing"
+    assert response_data(response)["job"]["status"] == "processing"
 
 
 def test_poll_video_job_completed_creates_asset(client):
     _save_jimeng_rest_settings(client)
     project_id = _create_project_with_shot(client, "Completed REST Video Asset")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert response.status_code == 200
-    job = response.json()["job"]
+    job = response_data(response)["job"]
     assert job["status"] == "completed"
     assert job["output_path"].startswith(f"data/uploads/{project_id}/generated/videos/")
-    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets").json()["assets"]
+    assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["asset_type"] == "video"
     assert assets[0]["source"] == "jimeng"
 
@@ -1576,53 +1661,53 @@ def test_poll_video_job_completed_binds_video(client):
     _save_jimeng_rest_settings(client)
     project_id = _create_project_with_shot(client, "Completed REST Video Bind")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert response.status_code == 200
-    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots").json()["shots"][0]
-    assert shot["video_path"] == response.json()["job"]["output_path"]
+    shot = client.get(f"/api/video-workbench/projects/{project_id}/shots")["shots"][0]
+    assert shot["video_path"] == response_data(response)["job"]["output_path"]
 
 
 def test_poll_video_job_rejects_terminal_status(client):
     _save_jimeng_rest_settings(client)
     project_id = _create_project_with_shot(client, "Terminal REST Video Job")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
     first_poll = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert first_poll.status_code == 200
-    assert first_poll.json()["job"]["status"] == "completed"
+    assert response_data(first_poll)["job"]["status"] == "completed"
     assert response.status_code == 409
-    assert "terminal" in response.json()["detail"].lower()
+    assert "terminal" in response_error_message(response).lower()
 
 
 def test_poll_video_job_failed(client):
     _save_jimeng_rest_settings(client, model="failed")
     project_id = _create_project_with_shot(client, "Failed REST Video Job")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert response.status_code == 200
-    assert response.json()["job"]["status"] == "failed"
-    assert "failed" in response.json()["job"]["error_message"].lower()
+    assert response_data(response)["job"]["status"] == "failed"
+    assert "failed" in response_data(response)["job"]["error_message"].lower()
 
 
 def test_poll_video_job_provider_error(client):
     _save_jimeng_rest_settings(client, model="provider-error")
     project_id = _create_project_with_shot(client, "Provider Error REST Video Job")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert response.status_code == 502
-    job = client.get(f"/api/video-workbench/video-jobs/{created['id']}").json()["job"]
+    job = client.get(f"/api/video-workbench/video-jobs/{created['id']}")["job"]
     assert job["status"] == "failed"
     assert "provider" in job["error_message"].lower()
 
@@ -1631,7 +1716,7 @@ def test_create_video_job_unknown_project(client):
     response = client.post("/api/video-workbench/projects/999/shots/1/video-jobs")
 
     assert response.status_code == 404
-    assert "project" in response.json()["detail"].lower()
+    assert "project" in response_error_message(response).lower()
 
 
 def test_create_video_job_unknown_shot(client):
@@ -1641,17 +1726,17 @@ def test_create_video_job_unknown_shot(client):
     response = client.post(f"/api/video-workbench/projects/{project_id}/shots/999/video-jobs")
 
     assert response.status_code == 404
-    assert "shot" in response.json()["detail"].lower()
+    assert "shot" in response_error_message(response).lower()
 
 
 def test_poll_video_job_provider_timeout(client):
     _save_jimeng_rest_settings(client, model="timeout")
     project_id = _create_project_with_shot(client, "Timeout REST Video Job")
     _bind_keyframe(client, project_id)
-    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs").json()["job"]
+    created = client.post(f"/api/video-workbench/projects/{project_id}/shots/1/video-jobs")["job"]
 
     response = client.post(f"/api/video-workbench/video-jobs/{created['id']}/poll")
 
     assert response.status_code == 504
-    job = client.get(f"/api/video-workbench/video-jobs/{created['id']}").json()["job"]
+    job = client.get(f"/api/video-workbench/video-jobs/{created['id']}")["job"]
     assert job["status"] == "timeout"

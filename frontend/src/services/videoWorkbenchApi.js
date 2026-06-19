@@ -7,6 +7,9 @@ async function readErrorMessage(response) {
   if (contentType.includes('application/json')) {
     try {
       const body = await response.json()
+      if (body.error?.message) {
+        return body.error.message
+      }
       if (typeof body.detail === 'string') {
         return body.detail
       }
@@ -33,7 +36,8 @@ async function request(path, options = {}) {
     throw new Error(await readErrorMessage(response))
   }
 
-  return response.json()
+  const payload = await response.json()
+  return payload?.success === true && 'data' in payload ? payload.data : payload
 }
 
 export function parseStoryboard(text) {
@@ -97,7 +101,8 @@ export async function uploadProjectAsset(projectId, assetType, file) {
     throw new Error(await readErrorMessage(response))
   }
 
-  return response.json()
+  const payload = await response.json()
+  return payload?.success === true && 'data' in payload ? payload.data : payload
 }
 
 export function getNanoBananaProviderSettings() {

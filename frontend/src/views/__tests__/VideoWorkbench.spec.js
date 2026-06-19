@@ -13,7 +13,6 @@ import {
   generateRenderPlan,
   exportRenderPlan,
   getTimeline,
-  getJimengSettings,
   getNanoBananaProviderSettings,
   pollVideoJob,
   getRenderPlan,
@@ -137,8 +136,10 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   getNanoBananaProviderSettings: vi.fn().mockResolvedValue({
     settings: {
       provider: 'nano_banana',
-      nano_banana_api_key: 'existing-key',
-      nano_banana_base_url: 'https://nano.example/generate'
+      base_url: 'https://nano.example/generate',
+      configured: true,
+      enabled: true,
+      credentials: { api_key: true }
     }
   }),
   getProjectShots: vi.fn().mockResolvedValue({
@@ -218,8 +219,10 @@ vi.mock('../../services/videoWorkbenchApi', () => ({
   saveNanoBananaProviderSettings: vi.fn().mockResolvedValue({
     settings: {
       provider: 'nano_banana',
-      nano_banana_api_key: 'new-key',
-      nano_banana_base_url: 'https://nano.example/v2'
+      base_url: 'https://nano.example/v2',
+      configured: true,
+      enabled: true,
+      credentials: { api_key: true }
     }
   }),
   uploadProjectAsset: vi.fn().mockResolvedValue({
@@ -413,8 +416,9 @@ describe('VideoWorkbench', () => {
 
     expect(getNanoBananaProviderSettings).toHaveBeenCalled()
     expect(saveNanoBananaProviderSettings).toHaveBeenCalledWith({
-      nano_banana_api_key: 'new-key',
-      nano_banana_base_url: 'https://nano.example/v2'
+      api_key: 'new-key',
+      base_url: 'https://nano.example/v2',
+      enabled: true
     })
     expect(wrapper.text()).toContain('Provider settings saved.')
   })

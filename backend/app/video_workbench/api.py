@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+import json
 import os
+from dataclasses import asdict
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import List, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse, Response
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
 from .nano_banana import NanoBananaClient, NanoBananaError
@@ -17,7 +22,78 @@ from .repository import VideoWorkbenchRepository
 from .video_provider import VideoProviderError, VideoProviderTimeoutError
 from .video_provider_registry import get_video_provider
 
-router = APIRouter(prefix="/api/video-workbench", tags=["video-workbench"])
+ERROR_CODES = {
+    400: "bad_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    413: "payload_too_large",
+    422: "validation_error",
+    502: "provider_error",
+    504: "provider_timeout",
+}
+
+
+def success_response(data):
+    return {"success": True, "data": data}
+
+
+def error_response(status_code: int, message: str, code: str | None = None):
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "success": False,
+            "error": {
+                "code": code or ERROR_CODES.get(status_code, "request_error"),
+                "message": message,
+            },
+        },
+    )
+
+
+def _response_headers(response: Response):
+    return {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() not in {"content-length", "content-type"}
+    }
+
+
+class StandardResponseRoute(APIRoute):
+    def get_route_handler(self):
+        original_route_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request) -> Response:
+            try:
+                response = await original_route_handler(request)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
+                return error_response(exc.status_code, detail)
+            except RequestValidationError as exc:
+                return error_response(422, json.dumps(exc.errors()), "validation_error")
+
+            if response.status_code >= 400 or response.media_type != "application/json":
+                return response
+
+            body = getattr(response, "body", b"")
+            data = json.loads(body.decode("utf-8")) if body else None
+            if isinstance(data, dict) and set(data.keys()) == {"success", "data"}:
+                return response
+            return JSONResponse(
+                status_code=response.status_code,
+                content=success_response(data),
+                headers=_response_headers(response),
+            )
+
+        return custom_route_handler
+
+
+router = APIRouter(
+    prefix="/api/video-workbench",
+    tags=["video-workbench"],
+    route_class=StandardResponseRoute,
+)
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED_UPLOADS = {
@@ -65,6 +141,9 @@ class CreateAssetRequest(BaseModel):
 
 
 class ProviderSettingsRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
+    enabled: bool = True
     nano_banana_api_key: str = ""
     nano_banana_base_url: str = ""
 
@@ -121,11 +200,13 @@ def _public_provider_settings(
     credential_fields: tuple[str, ...],
     extra_fields: tuple[str, ...] = (),
 ):
-    configured = any(_has_value(settings, field) for field in credential_fields)
+    credentials = {field: _has_value(settings, field) for field in credential_fields}
+    configured = any(credentials.values())
     payload = {
         "provider": provider,
         "configured": configured,
-        "enabled": bool(settings.get("enabled", False)) if configured else False,
+        "enabled": bool(settings.get("enabled", True)) if configured else False,
+        "credentials": credentials,
         "updated_at": settings.get("updated_at", ""),
     }
     for field in extra_fields:
@@ -343,12 +424,14 @@ async def save_nano_banana_provider_settings(
     data: ProviderSettingsRequest,
     repository: VideoWorkbenchRepository = Depends(get_repository),
 ):
-    base_url = data.nano_banana_base_url.strip()
+    api_key = (data.api_key or data.nano_banana_api_key).strip()
+    base_url = (data.base_url or data.nano_banana_base_url).strip()
     _validate_http_url(base_url, "Nano Banana base URL")
     settings = repository.save_provider_settings(
         "nano_banana",
-        data.nano_banana_api_key.strip(),
+        api_key,
         base_url,
+        data.enabled,
     )
     return jsonable_encoder(
         {

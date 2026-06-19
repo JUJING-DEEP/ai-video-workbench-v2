@@ -1,8 +1,8 @@
 import pytest
 
+from app.video_workbench.providers.jimeng_provider import JimengProvider
 from app.video_workbench.video_provider import MockVideoProvider
 from app.video_workbench.video_provider_registry import get_video_provider
-from app.video_workbench.providers.jimeng_provider import JimengProvider
 
 
 def test_provider_registry_returns_mock():

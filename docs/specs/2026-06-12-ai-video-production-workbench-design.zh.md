@@ -460,3 +460,58 @@ MVP 测试应覆盖：
 - 在 MVP 中包含音频、画面和字幕对齐。
 - 将浏览器 Agent 作为后续执行插件接入。
 - 对于关键节点视频镜头，先生成 Nano banana 关键帧，再用该关键帧和 I2V 提示词在即梦中生成视频。
+
+---
+
+## v1.0.0-beta.1 状态修订
+
+当前已发布基线为 `v1.0.0-beta.1`。
+
+当前 beta 能力包括：
+
+- 创建项目和查看项目列表。
+- 将分镜文本导入为持久化镜头记录。
+- 上传素材、查看素材库，并绑定 image、keyframe、video 路径。
+- Nano Banana Provider Settings、图片生成和关键帧生成。
+- Jimeng Provider Settings、Mock/Jimeng 视频生成，以及 Jimeng REST 任务提交/轮询流程。
+- Timeline 重排、Timeline 持久化、Render Plan 生成和导出。
+- SRT/ASS 字幕生成工具和媒体探测辅助模块。
+- Vue 工作台面板：Provider Settings、Asset Library、Shot Timeline、Validation、Render Pipeline、Timeline Editing、Video Jobs。
+
+API 响应使用统一 envelope。
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+错误响应：
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "bad_request",
+    "message": "可读错误信息。"
+  }
+}
+```
+
+Nano Banana 和 Jimeng Provider Settings 使用统一公开 schema：
+
+- `provider`
+- `enabled`
+- `configured`
+- `credentials`，仅包含是否已配置的布尔值
+- 非密钥字段，例如 `base_url`、`region`、`endpoint`、`model`
+- `updated_at`
+
+密钥值可以在保存时提交，但 API 响应绝不能回传密钥明文。
+
+Beta Hardening Sprint 2 明确不包含：新增 Provider、新增 AI 模型、新增 API 能力、新页面、新数据表、现有 REST 工作流形态之外的真实 Jimeng 集成、字幕/配音产品工作流、ffmpeg 渲染，以及新的 AI 能力。
+
+CI 必须通过后端测试、前端测试、前端构建和 lint gate（`ruff check .` 与 `eslint .`）。
