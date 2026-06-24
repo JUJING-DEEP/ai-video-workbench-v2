@@ -463,9 +463,9 @@ MVP 测试应覆盖：
 
 ---
 
-## v1.0.0-beta.1 状态修订
+## v1.0.0-beta.2 状态修订
 
-当前已发布基线为 `v1.0.0-beta.1`。
+当前已发布基线为 `v1.0.0-beta.2`。
 
 当前 beta 能力包括：
 
@@ -473,7 +473,8 @@ MVP 测试应覆盖：
 - 将分镜文本导入为持久化镜头记录。
 - 上传素材、查看素材库，并绑定 image、keyframe、video 路径。
 - Nano Banana Provider Settings、图片生成和关键帧生成。
-- Jimeng Provider Settings、Mock/Jimeng 视频生成，以及 Jimeng REST 任务提交/轮询流程。
+- Jimeng REST Adapter (Mock) Settings、Mock 视频工作流测试，以及 Jimeng REST Adapter (Mock) 任务提交/轮询流程。
+- Jimeng REST Adapter (Mock) 不代表真实火山引擎即梦 API 已接通；真实集成计划在未来版本实现。
 - Timeline 重排、Timeline 持久化、Render Plan 生成和导出。
 - SRT/ASS 字幕生成工具和媒体探测辅助模块。
 - Vue 工作台面板：Provider Settings、Asset Library、Shot Timeline、Validation、Render Pipeline、Timeline Editing、Video Jobs。
@@ -501,7 +502,7 @@ API 响应使用统一 envelope。
 }
 ```
 
-Nano Banana 和 Jimeng Provider Settings 使用统一公开 schema：
+Nano Banana 和 Jimeng REST Adapter (Mock) Provider Settings 使用统一公开 schema：
 
 - `provider`
 - `enabled`

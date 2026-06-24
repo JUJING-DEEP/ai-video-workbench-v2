@@ -463,9 +463,9 @@ The approved direction is:
 
 ---
 
-## v1.0.0-beta.1 Status Addendum
+## v1.0.0-beta.2 Status Addendum
 
-The current released baseline is `v1.0.0-beta.1`.
+The current released baseline is `v1.0.0-beta.2`.
 
 Implemented beta capabilities include:
 
@@ -473,7 +473,8 @@ Implemented beta capabilities include:
 - Storyboard import into persisted shot records.
 - Asset upload, asset library listing, and asset binding for image, keyframe, and video paths.
 - Nano Banana provider settings, image generation, and keyframe generation.
-- Jimeng provider settings, mock/Jimeng video generation, and Jimeng REST job submit/poll workflow.
+- Jimeng REST Adapter (Mock) settings, mock video workflow testing, and Jimeng REST Adapter (Mock) job submit/poll workflow.
+- The Jimeng REST Adapter is not a real Volcano Engine Jimeng integration; real integration is planned for a future release.
 - Timeline reorder, timeline persistence, render plan generation, and render plan export.
 - SRT/ASS subtitle generation utilities and media probing helpers.
 - Vue workbench panels for provider settings, asset library, shot timeline, validation, render pipeline, timeline editing, and video jobs.
@@ -499,7 +500,7 @@ Errors use:
 }
 ```
 
-Provider settings use a unified public schema across Nano Banana and Jimeng:
+Provider settings use a unified public schema across Nano Banana and Jimeng REST Adapter (Mock):
 
 - `provider`
 - `enabled`
