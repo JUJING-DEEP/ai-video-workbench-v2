@@ -1,6 +1,16 @@
 # Coffee Commercial Demo
 
-This demo project is a compact validation scenario for `v1.0.0-beta.1`. It uses only existing AI Video Workbench capabilities and does not require any new provider, model, API, page, or table.
+This demo project is a compact validation scenario for `v1.0.0-beta.2`. It uses only existing AI Video Workbench capabilities and does not require any new provider, model, API, page, or table.
+
+Machine-readable fixture:
+
+```text
+demo/coffee-commercial.json
+```
+
+Use the fixture by creating a project, pasting `storyboard_text` into the
+existing Storyboard Import UI, binding the listed asset paths, then generating
+and exporting the render plan. There is no separate demo import API.
 
 ## Project
 
@@ -30,9 +40,9 @@ This demo project is a compact validation scenario for `v1.0.0-beta.1`. It uses 
 
 | Shot | Asset Name | Path | Source | Expected Status |
 | --- | --- | --- | --- | --- |
-| 1 | `coffee-shot-001.mp4` | `data/uploads/1/generated/videos/coffee-shot-001.mp4` | `mock` or `jimeng` | `video_ready` |
-| 2 | `coffee-shot-002.mp4` | `data/uploads/1/generated/videos/coffee-shot-002.mp4` | `jimeng` | `video_ready` |
-| 3 | `coffee-shot-003.mp4` | `data/uploads/1/generated/videos/coffee-shot-003.mp4` | `mock` or `jimeng` | `video_ready` |
+| 1 | `coffee-shot-001.mp4` | `data/uploads/1/generated/videos/coffee-shot-001.mp4` | `mock` or fixture | `video_ready` |
+| 2 | `coffee-shot-002.mp4` | `data/uploads/1/generated/videos/coffee-shot-002.mp4` | `Jimeng REST Adapter (Mock)` or fixture | `video_ready` |
+| 3 | `coffee-shot-003.mp4` | `data/uploads/1/generated/videos/coffee-shot-003.mp4` | `mock` or fixture | `video_ready` |
 
 ## Timeline
 
@@ -86,10 +96,11 @@ Expected render-plan shape:
 
 1. Create the project with title `Coffee Commercial Demo`.
 2. Import the three-shot storyboard.
-3. Configure Nano Banana and Jimeng provider settings.
-4. Generate or bind the three keyframes.
-5. Generate or bind the three videos.
-6. Confirm timeline order is 1, 2, 3.
-7. Generate Render Plan.
-8. Export Render Plan.
-9. Confirm the API response uses the standard `{ "success": true, "data": ... }` envelope.
+3. Configure Nano Banana settings only if generating new assets.
+4. Treat Jimeng REST Adapter (Mock) as workflow testing only; it is not a real Volcano Engine Jimeng integration.
+5. Generate or bind the three keyframes.
+6. Generate or bind the three videos.
+7. Confirm timeline order is 1, 2, 3.
+8. Generate Render Plan.
+9. Export Render Plan.
+10. Confirm the API response uses the standard `{ "success": true, "data": ... }` envelope.

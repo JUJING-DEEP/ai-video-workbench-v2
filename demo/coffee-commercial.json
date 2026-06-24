@@ -1,0 +1,144 @@
+{
+  "project": {
+    "id": 7,
+    "title": "Coffee Commercial Demo",
+    "slug": "coffee-commercial-demo",
+    "role_card": "Premium coffee brand voice: warm, concise, calm.",
+    "audio_path": "demo/audio/coffee-commercial-12s.wav",
+    "audio_duration_seconds": 12.0
+  },
+  "storyboard_text": "分镜规划信息 (Storyboard Planning)\n音频总时长： 12 秒\n预计常规图片总数： 2 张\n预计关键节点数： 1 个\n预计分批次数： 1 批\n每批 3 张\n以下是 第 1 批（第 1 张 — 第 3 张） 的定格动画分镜提示词：\n————————————————————————\n第 1 张图片 ▏时间：0:00 — 0:04 ▏模式：B（全新构图）\n台词：Fresh coffee, fresh morning. / Fresh coffee, fresh morning.\n--- 提示词 ---\nSTYLE LOCK: premium commercial photography.\nScene: Warm kitchen counter, ceramic cup, morning light, steam rising from black coffee.\nMood & Color: Golden morning highlights, calm and inviting.\n————————————————————————\n第 2 张图片 ▏时间：0:04 — 0:08 ▏⚡ 关键节点 ⚡\n节点类型：[产品动作]\n画面风格：[macro product commercial]\n输出形式：直接图生视频\n台词：Roasted rich, poured smooth. / Roasted rich, poured smooth.\n--- 提示词 ---\nSTYLE LOCK: premium macro coffee commercial.\nScene: Close macro shot of coffee beans beside a glass pour-over brewer.\n--- 图生视频提示词 (I2V) ---\nSubject Motion: Coffee pours into a glass server, rich amber stream.\nCamera: Gentle camera drift with shallow depth of field.\n————————————————————————\n第 3 张图片 ▏时间：0:08 — 0:12 ▏模式：B（全新构图）\n台词：Your quiet ritual, ready now. / Your quiet ritual, ready now.\n--- 提示词 ---\nSTYLE LOCK: clean premium commercial composition.\nScene: Finished cup beside notebook and spoon, subtle steam movement, calm end-card hold.\nMood & Color: Soft neutral background, warm coffee tones.\n",
+  "shots": [
+    {
+      "shot_id": 1,
+      "mode": "B",
+      "kind": "image",
+      "start_seconds": 0.0,
+      "end_seconds": 4.0,
+      "duration_seconds": 4.0,
+      "status": "video_ready",
+      "dialogue_zh": "Fresh coffee, fresh morning.",
+      "dialogue_en": "Fresh coffee, fresh morning.",
+      "image_prompt": "Warm kitchen counter, ceramic cup, morning light, steam rising from black coffee.",
+      "i2v_prompt": "Slow push-in toward steaming cup, soft morning highlights.",
+      "image_path": "demo/assets/coffee-shot-001.png",
+      "keyframe_path": "demo/assets/coffee-shot-001-keyframe.png",
+      "video_path": "demo/assets/coffee-shot-001.mp4"
+    },
+    {
+      "shot_id": 2,
+      "mode": "KEY_NODE",
+      "kind": "key_node_video",
+      "start_seconds": 4.0,
+      "end_seconds": 8.0,
+      "duration_seconds": 4.0,
+      "status": "video_ready",
+      "dialogue_zh": "Roasted rich, poured smooth.",
+      "dialogue_en": "Roasted rich, poured smooth.",
+      "image_prompt": "Close macro shot of coffee beans beside a glass pour-over brewer.",
+      "i2v_prompt": "Coffee pours into a glass server, rich amber stream, gentle camera drift.",
+      "key_node_type": "产品动作",
+      "visual_style": "macro product commercial",
+      "output_form": "直接图生视频",
+      "image_path": "demo/assets/coffee-shot-002.png",
+      "keyframe_path": "demo/assets/coffee-shot-002-keyframe.png",
+      "video_path": "demo/assets/coffee-shot-002.mp4"
+    },
+    {
+      "shot_id": 3,
+      "mode": "B",
+      "kind": "image",
+      "start_seconds": 8.0,
+      "end_seconds": 12.0,
+      "duration_seconds": 4.0,
+      "status": "video_ready",
+      "dialogue_zh": "Your quiet ritual, ready now.",
+      "dialogue_en": "Your quiet ritual, ready now.",
+      "image_prompt": "Finished cup beside notebook and spoon, clean premium commercial composition.",
+      "i2v_prompt": "Subtle steam movement, calm end-card hold.",
+      "image_path": "demo/assets/coffee-shot-003.png",
+      "keyframe_path": "demo/assets/coffee-shot-003-keyframe.png",
+      "video_path": "demo/assets/coffee-shot-003.mp4"
+    }
+  ],
+  "assets": [
+    {
+      "id": 101,
+      "project_id": 7,
+      "asset_type": "image",
+      "name": "coffee-shot-001.png",
+      "path": "demo/assets/coffee-shot-001.png",
+      "source": "demo",
+      "prompt": "Warm kitchen counter with steaming coffee cup.",
+      "created_at": "2026-06-24 09:00:00"
+    },
+    {
+      "id": 102,
+      "project_id": 7,
+      "asset_type": "keyframe",
+      "name": "coffee-shot-002-keyframe.png",
+      "path": "demo/assets/coffee-shot-002-keyframe.png",
+      "source": "demo",
+      "prompt": "Macro coffee pour-over keyframe with beans.",
+      "created_at": "2026-06-24 09:01:00"
+    },
+    {
+      "id": 103,
+      "project_id": 7,
+      "asset_type": "video",
+      "name": "coffee-shot-002.mp4",
+      "path": "demo/assets/coffee-shot-002.mp4",
+      "source": "demo",
+      "prompt": "Coffee pours into a glass server, rich amber stream.",
+      "created_at": "2026-06-24 09:02:00"
+    }
+  ],
+  "timeline": [
+    {
+      "shot_id": 1,
+      "order": 1,
+      "title": "Fresh coffee, fresh morning.",
+      "video_path": "demo/assets/coffee-shot-001.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "shot_id": 2,
+      "order": 2,
+      "title": "Roasted rich, poured smooth.",
+      "video_path": "demo/assets/coffee-shot-002.mp4",
+      "duration_seconds": 4.0
+    },
+    {
+      "shot_id": 3,
+      "order": 3,
+      "title": "Your quiet ritual, ready now.",
+      "video_path": "demo/assets/coffee-shot-003.mp4",
+      "duration_seconds": 4.0
+    }
+  ],
+  "render_plan": {
+    "id": 12,
+    "project_id": 7,
+    "export_path": "data/exports/7/render-plan.json",
+    "items": [
+      {
+        "shot_id": 1,
+        "order": 1,
+        "video_path": "demo/assets/coffee-shot-001.mp4",
+        "duration_seconds": 4.0
+      },
+      {
+        "shot_id": 2,
+        "order": 2,
+        "video_path": "demo/assets/coffee-shot-002.mp4",
+        "duration_seconds": 4.0
+      },
+      {
+        "shot_id": 3,
+        "order": 3,
+        "video_path": "demo/assets/coffee-shot-003.mp4",
+        "duration_seconds": 4.0
+      }
+    ]
+  }
+}

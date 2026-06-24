@@ -325,7 +325,7 @@ const uploadAccept = computed(() => {
 const renderPlanItems = computed(() => renderPlan.value?.items || [])
 const timelineShots = computed(() => timeline.value?.shots || [])
 const selectedVideoProviderLabel = computed(() =>
-  selectedVideoProvider.value === 'jimeng' ? 'Jimeng Provider' : 'Mock Provider'
+  selectedVideoProvider.value === 'jimeng' ? 'Jimeng REST Adapter (Mock)' : 'Mock Provider'
 )
 
 onMounted(() => {

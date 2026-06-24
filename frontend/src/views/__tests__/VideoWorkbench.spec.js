@@ -423,7 +423,7 @@ describe('VideoWorkbench', () => {
     expect(wrapper.text()).toContain('Provider settings saved.')
   })
 
-  it('saves Jimeng REST provider settings', async () => {
+  it('saves Jimeng REST Adapter mock provider settings', async () => {
     const wrapper = mount(VideoWorkbench)
     await flushPromises()
 
@@ -808,7 +808,7 @@ describe('VideoWorkbench', () => {
     expect(selector.exists()).toBe(true)
     expect(selector.element.value).toBe('mock')
     expect(wrapper.text()).toContain('Mock Provider')
-    expect(wrapper.text()).toContain('Jimeng Provider')
+    expect(wrapper.text()).toContain('Jimeng REST Adapter (Mock)')
   })
 
   it('changes the selected video provider', async () => {
@@ -820,7 +820,7 @@ describe('VideoWorkbench', () => {
 
     await wrapper.find('#video-provider').setValue('jimeng')
 
-    expect(wrapper.text()).toContain('Current Provider: Jimeng Provider')
+    expect(wrapper.text()).toContain('Current Provider: Jimeng REST Adapter (Mock)')
   })
 
   it('calls generateVideo with the selected provider', async () => {
@@ -872,7 +872,7 @@ describe('VideoWorkbench', () => {
     await wrapper.find('#project-select').setValue('7')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Jimeng REST Job')
+    expect(wrapper.text()).toContain('Jimeng REST Adapter (Mock) Job')
     expect(wrapper.find('[data-testid="submit-video-job"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="poll-video-job"]').exists()).toBe(true)
   })

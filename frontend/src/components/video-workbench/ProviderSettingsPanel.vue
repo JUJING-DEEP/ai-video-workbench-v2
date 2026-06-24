@@ -35,16 +35,16 @@
     <p v-if="providerMessage" class="video-workbench__upload-message">{{ providerMessage }}</p>
     <div class="video-workbench__settings-grid">
       <div class="video-workbench__field">
-        <label for="jimeng-api-key">Jimeng API Key</label>
+        <label for="jimeng-api-key">Jimeng REST Adapter (Mock) API Key</label>
         <input
           id="jimeng-api-key"
           v-model="jimengSettings.api_key"
           type="password"
-          placeholder="Jimeng API key"
+          placeholder="Mock Jimeng API key"
         >
       </div>
       <div class="video-workbench__field">
-        <label for="jimeng-base-url">Jimeng Base URL</label>
+        <label for="jimeng-base-url">Jimeng REST Adapter (Mock) Base URL</label>
         <input
           id="jimeng-base-url"
           v-model="jimengSettings.base_url"
@@ -53,25 +53,25 @@
         >
       </div>
       <div class="video-workbench__field">
-        <label for="jimeng-access-key">Jimeng Access Key</label>
+        <label for="jimeng-access-key">Jimeng REST Adapter (Mock) Access Key</label>
         <input
           id="jimeng-access-key"
           v-model="jimengSettings.access_key"
           type="password"
-          placeholder="Jimeng access key"
+          placeholder="Mock Jimeng access key"
         >
       </div>
       <div class="video-workbench__field">
-        <label for="jimeng-secret-key">Jimeng Secret Key</label>
+        <label for="jimeng-secret-key">Jimeng REST Adapter (Mock) Secret Key</label>
         <input
           id="jimeng-secret-key"
           v-model="jimengSettings.secret_key"
           type="password"
-          placeholder="Jimeng secret key"
+          placeholder="Mock Jimeng secret key"
         >
       </div>
       <div class="video-workbench__field">
-        <label for="jimeng-region">Jimeng Region</label>
+        <label for="jimeng-region">Jimeng REST Adapter (Mock) Region</label>
         <input
           id="jimeng-region"
           v-model="jimengSettings.region"
@@ -80,7 +80,7 @@
         >
       </div>
       <div class="video-workbench__field">
-        <label for="jimeng-endpoint">Jimeng Endpoint</label>
+        <label for="jimeng-endpoint">Jimeng REST Adapter (Mock) Endpoint</label>
         <input
           id="jimeng-endpoint"
           v-model="jimengSettings.endpoint"
@@ -89,7 +89,7 @@
         >
       </div>
       <div class="video-workbench__field">
-        <label for="jimeng-model">Jimeng Model</label>
+        <label for="jimeng-model">Jimeng REST Adapter (Mock) Model</label>
         <input
           id="jimeng-model"
           v-model="jimengSettings.model"
@@ -99,7 +99,7 @@
       </div>
       <label class="video-workbench__checkbox" for="jimeng-enabled">
         <input id="jimeng-enabled" v-model="jimengSettings.enabled" type="checkbox">
-        Enable Jimeng
+        Enable Jimeng REST Adapter (Mock)
       </label>
       <button
         type="button"
@@ -107,9 +107,14 @@
         :disabled="isSavingJimengSettings"
         @click="$emit('save-jimeng')"
       >
-        {{ isSavingJimengSettings ? '保存中...' : 'Save Jimeng settings' }}
+        {{ isSavingJimengSettings ? '保存中...' : 'Save Jimeng mock settings' }}
       </button>
     </div>
+    <p class="video-workbench__muted">
+      Jimeng REST Adapter (Mock) is for workflow testing only. It does not mean
+      the real Volcano Engine Jimeng API is connected; real integration is planned
+      for a future release.
+    </p>
     <p v-if="jimengProviderMessage" class="video-workbench__upload-message">
       {{ jimengProviderMessage }}
     </p>

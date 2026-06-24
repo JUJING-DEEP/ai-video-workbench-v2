@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .video_workbench.api import router as video_workbench_router
 from .video_workbench.api import success_response
 
-API_VERSION = "1.0.0-beta.1"
+API_VERSION = "1.0.0-beta.2"
 
 app = FastAPI(title="AI Video Workbench API", version=API_VERSION)
 

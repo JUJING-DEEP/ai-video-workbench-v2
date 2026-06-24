@@ -1,6 +1,6 @@
-> 🚧 Project Status: v1.0.0-beta.1 / Beta Hardening Sprint 2
+> 🚧 Project Status: v1.0.0-beta.2 / RC1 Readiness Preparation
 >
-> Readiness Score: 84/100
+> Readiness Score: 86/100
 >
 > Current features:
 > - Storyboard management
@@ -9,7 +9,7 @@
 > - Asset preview
 > - Asset upload
 > - Nano Banana image and keyframe generation
-> - Jimeng video generation and REST job workflow
+> - Jimeng REST Adapter (Mock) workflow testing scaffold
 > - Timeline editor
 > - Render plan export
 > - CI/CD pipeline
@@ -28,7 +28,7 @@ This project helps scale an AI short-video workflow that typically involves:
 1. Generating scripts and storyboards in Google AI Studio.
 2. Creating narration audio with ElevenLabs or another voice tool.
 3. Generating images with Nano banana.
-4. Generating I2V clips with Jimeng.
+4. Testing I2V workflow scaffolding with the Jimeng REST Adapter (Mock).
 5. Aligning images, videos, audio, and subtitles into a final video.
 
 本项目用于规模化一个典型 AI 短视频流程：
@@ -36,12 +36,12 @@ This project helps scale an AI short-video workflow that typically involves:
 1. 在 Google AI Studio 生成脚本和分镜。
 2. 使用 ElevenLabs 或其他语音工具生成旁白音频。
 3. 使用 Nano banana 生成图片。
-4. 使用即梦生成图生视频片段。
+4. 使用 Jimeng REST Adapter (Mock) 测试图生视频工作流脚手架。
 5. 将图片、视频、音频和字幕严格对齐，组合成最终成片。
 
-v1.0.0-beta.1 focuses on a stable local workbench foundation: parsing fixed-format storyboard text, managing shot metadata, uploading and binding assets, configuring providers, generating image/keyframe/video assets through existing providers, validating timelines, generating subtitles, and preparing render plans.
+v1.0.0-beta.2 focuses on a stable local workbench foundation: parsing fixed-format storyboard text, managing shot metadata, uploading and binding assets, configuring providers, generating image/keyframe assets, testing video workflow scaffolding through mock adapters, validating timelines, generating subtitles, and preparing render plans.
 
-v1.0.0-beta.1 聚焦稳定的本地工作台基础能力：解析固定格式分镜文本、管理镜头元数据、上传和绑定素材、配置 Provider、通过现有 Provider 生成图片/关键帧/视频素材、校验时间线、生成字幕，并准备渲染计划。
+v1.0.0-beta.2 聚焦稳定的本地工作台基础能力：解析固定格式分镜文本、管理镜头元数据、上传和绑定素材、配置 Provider、生成图片/关键帧素材、通过 mock adapter 测试视频工作流脚手架、校验时间线、生成字幕，并准备渲染计划。
 
 ---
 
@@ -49,7 +49,7 @@ v1.0.0-beta.1 聚焦稳定的本地工作台基础能力：解析固定格式分
 
 - **Storyboard parsing**: Parse Google AI Studio planning metadata, batch text, and shot-level prompts.
 - **Shot classification**: Identify Mode A overlays, Mode B new compositions, and key-node I2V shots.
-- **Prompt package export**: Generate task files for Nano banana images, Nano banana keyframes, and Jimeng I2V prompts.
+- **Prompt package export**: Generate task files for Nano banana images, Nano banana keyframes, and Jimeng I2V workflow prompts.
 - **Asset tracking foundation**: Store expected image, keyframe, and video paths per shot.
 - **Timeline validation**: Detect time gaps, overlaps, duplicate shot IDs, invalid durations, missing assets, and audio timeline mismatches.
 - **Subtitle generation**: Generate Chinese SRT and bilingual ASS subtitles.
@@ -58,7 +58,7 @@ v1.0.0-beta.1 聚焦稳定的本地工作台基础能力：解析固定格式分
 
 - **分镜解析**：解析 Google AI Studio 的规划信息、批次文本和镜头级提示词。
 - **镜头分类**：识别模式 A 垫图叠加、模式 B 全新构图，以及关键节点 I2V 镜头。
-- **提示词包导出**：生成 Nano banana 图片、Nano banana 关键帧、即梦 I2V 的任务文件。
+- **提示词包导出**：生成 Nano banana 图片、Nano banana 关键帧和 Jimeng I2V 工作流提示词任务文件。
 - **素材追踪基础**：为每个镜头记录预期图片、关键帧和视频路径。
 - **时间线校验**：检测时间断档、重叠、重复镜头编号、非法时长、缺失素材和音频时间轴不匹配。
 - **字幕生成**：生成中文字幕 SRT 和中英双语 ASS 字幕。
@@ -168,9 +168,9 @@ First workflow / 第一次完整流程：
 1. Open **Provider Settings**.
 2. Configure Provider:
    - Nano Banana: enter API key and Base URL.
-   - Jimeng: enter Base URL or REST fields, including access key, secret key, endpoint, model, and enabled state.
+   - Jimeng REST Adapter (Mock): optional workflow-testing fields only. This does not connect the real Volcano Engine Jimeng API.
 3. Create Project using the project bar.
-4. Import Storyboard to create Shot records. Use this minimal sample:
+4. Import Storyboard to create Shot records. For a full demo, open `demo/coffee-commercial.json` and paste `storyboard_text`. For a minimal smoke sample, use:
 
 ```text
 第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）
@@ -181,11 +181,20 @@ Scene: Test shot.
 
 5. Select the Shot in the timeline.
 6. Generate Keyframe from the AI Keyframe Generator.
-7. Generate Video from the Video Generator, or submit and poll a Jimeng REST job.
+7. Generate Video with the mock Video Generator for workflow testing, submit and poll a Jimeng REST Adapter (Mock) job, or bind demo asset paths from `demo/coffee-commercial.json`.
 8. Generate Render Plan in the Render Pipeline panel.
 9. Export Render Plan.
 
 Generated files are written under `data/uploads/{project_id}/...` and `data/exports/{project_id}/render-plan.json`.
+
+10-minute demo path / 10 分钟 demo 路径：
+
+1. Clone the repo and start backend/frontend with the commands above.
+2. Open `demo/coffee-commercial.json`.
+3. Create a project named `Coffee Commercial Demo`.
+4. Paste `storyboard_text` into Storyboard Import and save it.
+5. Bind the fixture `assets` paths to the matching shots.
+6. Save the timeline order, generate the render plan, then export it.
 
 ### Prerequisites / 环境要求
 
@@ -248,6 +257,7 @@ python -m pytest tests/video_workbench -v
 ```bash
 cd frontend
 npm run test
+npm run test:e2e
 npm run build
 npm run lint
 ```
@@ -355,11 +365,27 @@ Invalid storyboard-like text returns `400 Bad Request` with `success: false` and
 
 格式异常的分镜文本会返回 `400 Bad Request`，并通过 `success: false` 和 `error.message` 返回可读的错误说明。
 
+### Jimeng REST Adapter Contract / Jimeng REST Adapter 契约
+
+The current Jimeng REST Adapter is a mock workflow-testing scaffold. It is used
+to validate provider settings, video job submission, polling, timeline updates,
+and render-plan integration without adding a new production provider.
+
+It does **not** mean the real Volcano Engine Jimeng API is connected. Real
+Jimeng integration is planned for a future release and remains out of scope for
+v1.0.0-beta.2 / RC1 readiness.
+
+当前 Jimeng REST Adapter 是 mock 工作流测试脚手架，用于验证 Provider Settings、
+视频任务提交、轮询、Timeline 更新和 Render Plan 集成。
+
+它**不代表**真实火山引擎即梦 API 已接通。真实 Jimeng 集成计划在未来版本中实现，
+不属于 v1.0.0-beta.2 / RC1 readiness 范围。
+
 ### Provider Settings Public Schema / Provider Settings 公开 Schema
 
-Nano Banana and Jimeng settings share the same non-secret response shape.
+Nano Banana and Jimeng REST Adapter (Mock) settings share the same non-secret response shape.
 
-Nano Banana 和 Jimeng settings 使用统一的非密钥响应结构。
+Nano Banana 和 Jimeng REST Adapter (Mock) settings 使用统一的非密钥响应结构。
 
 ```json
 {
@@ -459,7 +485,7 @@ video_projects/
 
 ---
 
-## 7. v1.0.0-beta.1 Implemented / v1.0.0-beta.1 已实现功能
+## 7. v1.0.0-beta.2 Implemented / v1.0.0-beta.2 已实现功能
 
 - Backend test harness with pytest.
 - Domain models for projects, shots, shot modes, shot kinds, and statuses.
@@ -467,10 +493,10 @@ video_projects/
 - Storyboard parser for project planning metadata, Mode A, Mode B, and key-node I2V blocks.
 - SQLite repository for video projects and shots.
 - Asset upload, asset library, and image/keyframe/video binding.
-- Provider settings for Nano Banana and Jimeng with credential redaction.
+- Provider settings for Nano Banana and Jimeng REST Adapter (Mock) with credential redaction.
 - Nano Banana image and keyframe generation endpoints.
-- Mock and Jimeng video generation endpoints.
-- Jimeng REST video job submit/poll workflow.
+- Mock video generation endpoint and Jimeng REST Adapter (Mock) workflow testing.
+- Jimeng REST Adapter (Mock) video job submit/poll workflow.
 - Safe local project storage and prompt package export.
 - Timeline validator for gaps, overlaps, missing assets, invalid durations, duplicate shot IDs, and audio mismatch.
 - SRT and ASS subtitle generation with ASS escaping and deterministic ordering.
@@ -489,10 +515,10 @@ video_projects/
 - 支持项目规划信息、模式 A、模式 B、关键节点 I2V 文本块的分镜解析器。
 - 用于视频项目和镜头数据的 SQLite repository。
 - 素材上传、素材库，以及图片/关键帧/视频绑定。
-- Nano Banana 和即梦 Provider Settings，密钥不会回传。
+- Nano Banana 和 Jimeng REST Adapter (Mock) Provider Settings，密钥不会回传。
 - Nano Banana 图片和关键帧生成接口。
-- Mock 和即梦视频生成接口。
-- 即梦 REST 视频任务提交/轮询流程。
+- Mock 视频生成接口和 Jimeng REST Adapter (Mock) 工作流测试。
+- Jimeng REST Adapter (Mock) 视频任务提交/轮询流程。
 - 安全的本地项目存储和提示词包导出。
 - 时间线校验器，可检测断档、重叠、缺失素材、非法时长、重复镜头编号和音频不匹配。
 - SRT 和 ASS 字幕生成，包含 ASS 转义和稳定排序。

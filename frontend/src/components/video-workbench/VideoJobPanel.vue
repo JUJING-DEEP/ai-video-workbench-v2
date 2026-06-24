@@ -9,7 +9,7 @@
         @change="$emit('update:selected-video-provider', $event.target.value)"
       >
         <option value="mock">Mock Provider</option>
-        <option value="jimeng">Jimeng Provider</option>
+        <option value="jimeng">Jimeng REST Adapter (Mock)</option>
       </select>
     </div>
     <p class="video-workbench__muted">Current Provider: {{ selectedVideoProviderLabel }}</p>
@@ -32,8 +32,11 @@
       <video :src="assetPreviews.video.url" controls aria-label="视频预览" />
     </div>
 
-    <section class="video-workbench__video-job" aria-label="Jimeng REST Job">
-      <h5>Jimeng REST Job</h5>
+    <section class="video-workbench__video-job" aria-label="Jimeng REST Adapter Mock Job">
+      <h5>Jimeng REST Adapter (Mock) Job</h5>
+      <p class="video-workbench__muted">
+        Workflow testing scaffold only; not a live Volcano Engine Jimeng integration.
+      </p>
       <p class="video-workbench__muted">
         Job status: {{ videoJob?.status || 'not submitted' }}
       </p>
@@ -49,7 +52,7 @@
           "
           @click="$emit('submit-video-job')"
         >
-          {{ isSubmittingVideoJob ? 'Submitting Jimeng Job...' : 'Submit Jimeng Job' }}
+          {{ isSubmittingVideoJob ? 'Submitting Mock Job...' : 'Submit Mock Jimeng Job' }}
         </button>
         <button
           type="button"
