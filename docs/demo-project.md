@@ -1,6 +1,6 @@
 # Coffee Commercial Demo
 
-This demo project is a compact validation scenario for `v1.0.0-beta.2`. It uses only existing AI Video Workbench capabilities and does not require any new provider, model, API, page, or table.
+This demo project is a compact validation scenario for `v1.0.0-rc.1` GA readiness. It uses only existing AI Video Workbench capabilities and does not require any new provider, model, API, page, or table.
 
 Machine-readable fixture:
 
@@ -8,9 +8,17 @@ Machine-readable fixture:
 demo/coffee-commercial.json
 ```
 
-Use the fixture by creating a project, pasting `storyboard_text` into the
-existing Storyboard Import UI, binding the listed asset paths, then generating
-and exporting the render plan. There is no separate demo import API.
+Use the fixture by starting the existing backend and frontend, opening
+`/video-workbench`, and clicking **Import Demo**. The UI creates the project,
+imports `storyboard_text`, registers the local demo assets, binds shot asset
+paths, and saves the fixture timeline using existing APIs.
+
+The fixture media files live in:
+
+```text
+demo/assets/
+demo/audio/coffee-commercial-12s.wav
+```
 
 ## Project
 
@@ -32,25 +40,25 @@ and exporting the render plan. There is no separate demo import API.
 
 | Shot | Asset Name | Path | Source | Prompt |
 | --- | --- | --- | --- | --- |
-| 1 | `coffee-shot-001.png` | `data/uploads/1/generated/keyframes/coffee-shot-001.png` | `nano_banana` | Warm kitchen counter with steaming coffee cup. |
-| 2 | `coffee-shot-002-keyframe.png` | `data/uploads/1/generated/keyframes/coffee-shot-002-keyframe.png` | `nano_banana` | Macro coffee pour-over keyframe with beans. |
-| 3 | `coffee-shot-003.png` | `data/uploads/1/generated/keyframes/coffee-shot-003.png` | `nano_banana` | Premium quiet coffee ritual end frame. |
+| 1 | `coffee-shot-001-keyframe.png` | `demo/assets/coffee-shot-001-keyframe.png` | `demo` | Warm kitchen counter with steaming coffee cup keyframe. |
+| 2 | `coffee-shot-002-keyframe.png` | `demo/assets/coffee-shot-002-keyframe.png` | `demo` | Macro coffee pour-over keyframe with beans. |
+| 3 | `coffee-shot-003-keyframe.png` | `demo/assets/coffee-shot-003-keyframe.png` | `demo` | Premium quiet coffee ritual end keyframe. |
 
 ## Videos
 
 | Shot | Asset Name | Path | Source | Expected Status |
 | --- | --- | --- | --- | --- |
-| 1 | `coffee-shot-001.mp4` | `data/uploads/1/generated/videos/coffee-shot-001.mp4` | `mock` or fixture | `video_ready` |
-| 2 | `coffee-shot-002.mp4` | `data/uploads/1/generated/videos/coffee-shot-002.mp4` | `Jimeng REST Adapter (Mock)` or fixture | `video_ready` |
-| 3 | `coffee-shot-003.mp4` | `data/uploads/1/generated/videos/coffee-shot-003.mp4` | `mock` or fixture | `video_ready` |
+| 1 | `coffee-shot-001.mp4` | `demo/assets/coffee-shot-001.mp4` | `demo` | `video_ready` |
+| 2 | `coffee-shot-002.mp4` | `demo/assets/coffee-shot-002.mp4` | `demo` | `video_ready` |
+| 3 | `coffee-shot-003.mp4` | `demo/assets/coffee-shot-003.mp4` | `demo` | `video_ready` |
 
 ## Timeline
 
 | Order | Shot | Duration | Video Path |
 | --- | --- | --- | --- |
-| 1 | 1 | 4s | `data/uploads/1/generated/videos/coffee-shot-001.mp4` |
-| 2 | 2 | 4s | `data/uploads/1/generated/videos/coffee-shot-002.mp4` |
-| 3 | 3 | 4s | `data/uploads/1/generated/videos/coffee-shot-003.mp4` |
+| 1 | 1 | 4s | `demo/assets/coffee-shot-001.mp4` |
+| 2 | 2 | 4s | `demo/assets/coffee-shot-002.mp4` |
+| 3 | 3 | 4s | `demo/assets/coffee-shot-003.mp4` |
 
 Validation expectations:
 
@@ -75,17 +83,17 @@ Expected render-plan shape:
   "shots": [
     {
       "shot_id": 1,
-      "video_path": "data/uploads/1/generated/videos/coffee-shot-001.mp4",
+      "video_path": "demo/assets/coffee-shot-001.mp4",
       "duration_seconds": 4.0
     },
     {
       "shot_id": 2,
-      "video_path": "data/uploads/1/generated/videos/coffee-shot-002.mp4",
+      "video_path": "demo/assets/coffee-shot-002.mp4",
       "duration_seconds": 4.0
     },
     {
       "shot_id": 3,
-      "video_path": "data/uploads/1/generated/videos/coffee-shot-003.mp4",
+      "video_path": "demo/assets/coffee-shot-003.mp4",
       "duration_seconds": 4.0
     }
   ]
@@ -94,13 +102,13 @@ Expected render-plan shape:
 
 ## Demo Flow
 
-1. Create the project with title `Coffee Commercial Demo`.
-2. Import the three-shot storyboard.
-3. Configure Nano Banana settings only if generating new assets.
-4. Treat Jimeng REST Adapter (Mock) as workflow testing only; it is not a real Volcano Engine Jimeng integration.
-5. Generate or bind the three keyframes.
-6. Generate or bind the three videos.
-7. Confirm timeline order is 1, 2, 3.
-8. Generate Render Plan.
-9. Export Render Plan.
-10. Confirm the API response uses the standard `{ "success": true, "data": ... }` envelope.
+1. Start backend and frontend.
+2. Open `http://127.0.0.1:5173/video-workbench`.
+3. Click **Import Demo**.
+4. Confirm Storyboard contains shots 1, 2, and 3.
+5. Confirm Asset Library contains demo image, keyframe, and video assets.
+6. Confirm Timeline order is 1, 2, 3.
+7. Optional: move Shot 2 up and click **Save Timeline**.
+8. Click **Generate Render Plan**.
+9. Click **Export Render Plan**.
+10. Confirm `render-plan.json` uses the same order as the saved Timeline.

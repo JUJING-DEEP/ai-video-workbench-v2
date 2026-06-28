@@ -1,4 +1,4 @@
-> 🚧 Project Status: v1.0.0-beta.2 / RC1 Readiness Preparation
+> 🚧 Project Status: v1.0.0-rc.1 / GA Readiness Sprint
 >
 > Readiness Score: 86/100
 >
@@ -165,12 +165,18 @@ http://127.0.0.1:5173/video-workbench
 
 First workflow / 第一次完整流程：
 
-1. Open **Provider Settings**.
-2. Configure Provider:
-   - Nano Banana: enter API key and Base URL.
-   - Jimeng REST Adapter (Mock): optional workflow-testing fields only. This does not connect the real Volcano Engine Jimeng API.
-3. Create Project using the project bar.
-4. Import Storyboard to create Shot records. For a full demo, open `demo/coffee-commercial.json` and paste `storyboard_text`. For a minimal smoke sample, use:
+1. Click **Import Demo** in the project bar.
+2. Confirm the `Coffee Commercial Demo` project is selected.
+3. Review Storyboard, Asset Library, and Timeline.
+4. Optional: move a Timeline item and click **Save Timeline**.
+5. Click **Generate Render Plan**.
+6. Click **Export Render Plan**.
+
+The demo is self-contained: it imports `demo/coffee-commercial.json`, registers local fixture assets from `demo/assets`, binds the asset paths to shots, saves the fixture timeline, and can export `data/exports/{project_id}/render-plan.json` without Provider credentials.
+
+Manual storyboard smoke sample / 手动分镜 smoke 示例：
+
+For a manual workflow instead of the demo import: open Provider Settings, create project, import storyboard, generate keyframe, generate video, then export render plan.
 
 ```text
 第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）
@@ -179,22 +185,14 @@ First workflow / 第一次完整流程：
 Scene: Test shot.
 ```
 
-5. Select the Shot in the timeline.
-6. Generate Keyframe from the AI Keyframe Generator.
-7. Generate Video with the mock Video Generator for workflow testing, submit and poll a Jimeng REST Adapter (Mock) job, or bind demo asset paths from `demo/coffee-commercial.json`.
-8. Generate Render Plan in the Render Pipeline panel.
-9. Export Render Plan.
-
 Generated files are written under `data/uploads/{project_id}/...` and `data/exports/{project_id}/render-plan.json`.
 
-10-minute demo path / 10 分钟 demo 路径：
+Demo path / Demo 路径：
 
 1. Clone the repo and start backend/frontend with the commands above.
-2. Open `demo/coffee-commercial.json`.
-3. Create a project named `Coffee Commercial Demo`.
-4. Paste `storyboard_text` into Storyboard Import and save it.
-5. Bind the fixture `assets` paths to the matching shots.
-6. Save the timeline order, generate the render plan, then export it.
+2. Open `http://127.0.0.1:5173/video-workbench`.
+3. Click **Import Demo**.
+4. Generate and export the render plan.
 
 ### Prerequisites / 环境要求
 

@@ -76,14 +76,44 @@
       "id": 102,
       "project_id": 7,
       "asset_type": "keyframe",
+      "name": "coffee-shot-001-keyframe.png",
+      "path": "demo/assets/coffee-shot-001-keyframe.png",
+      "source": "demo",
+      "prompt": "Warm kitchen counter with steaming coffee cup keyframe.",
+      "created_at": "2026-06-24 09:00:30"
+    },
+    {
+      "id": 103,
+      "project_id": 7,
+      "asset_type": "video",
+      "name": "coffee-shot-001.mp4",
+      "path": "demo/assets/coffee-shot-001.mp4",
+      "source": "demo",
+      "prompt": "Slow push-in toward steaming cup.",
+      "created_at": "2026-06-24 09:00:45"
+    },
+    {
+      "id": 104,
+      "project_id": 7,
+      "asset_type": "image",
+      "name": "coffee-shot-002.png",
+      "path": "demo/assets/coffee-shot-002.png",
+      "source": "demo",
+      "prompt": "Close macro shot of coffee beans beside a pour-over brewer.",
+      "created_at": "2026-06-24 09:01:00"
+    },
+    {
+      "id": 105,
+      "project_id": 7,
+      "asset_type": "keyframe",
       "name": "coffee-shot-002-keyframe.png",
       "path": "demo/assets/coffee-shot-002-keyframe.png",
       "source": "demo",
       "prompt": "Macro coffee pour-over keyframe with beans.",
-      "created_at": "2026-06-24 09:01:00"
+      "created_at": "2026-06-24 09:01:30"
     },
     {
-      "id": 103,
+      "id": 106,
       "project_id": 7,
       "asset_type": "video",
       "name": "coffee-shot-002.mp4",
@@ -91,6 +121,36 @@
       "source": "demo",
       "prompt": "Coffee pours into a glass server, rich amber stream.",
       "created_at": "2026-06-24 09:02:00"
+    },
+    {
+      "id": 107,
+      "project_id": 7,
+      "asset_type": "image",
+      "name": "coffee-shot-003.png",
+      "path": "demo/assets/coffee-shot-003.png",
+      "source": "demo",
+      "prompt": "Premium quiet coffee ritual end frame.",
+      "created_at": "2026-06-24 09:03:00"
+    },
+    {
+      "id": 108,
+      "project_id": 7,
+      "asset_type": "keyframe",
+      "name": "coffee-shot-003-keyframe.png",
+      "path": "demo/assets/coffee-shot-003-keyframe.png",
+      "source": "demo",
+      "prompt": "Premium quiet coffee ritual end keyframe.",
+      "created_at": "2026-06-24 09:03:30"
+    },
+    {
+      "id": 109,
+      "project_id": 7,
+      "asset_type": "video",
+      "name": "coffee-shot-003.mp4",
+      "path": "demo/assets/coffee-shot-003.mp4",
+      "source": "demo",
+      "prompt": "Subtle steam movement, calm end-card hold.",
+      "created_at": "2026-06-24 09:04:00"
     }
   ],
   "timeline": [

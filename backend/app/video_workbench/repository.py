@@ -448,7 +448,7 @@ class VideoWorkbenchRepository:
                         shot.video_path,
                         shot.duration_seconds,
                     )
-                    for index, shot in enumerate(sorted(shots, key=lambda item: item.shot_id), start=1)
+                    for index, shot in enumerate(shots, start=1)
                 ],
             )
 
