@@ -157,7 +157,7 @@ def test_cancellation_contract_has_no_implicit_cancel_side_effect(provider_api_h
     assert provider_api_harness.list_shots(project_id)[0]["video_path"] == ""
 
 
-def test_invalid_response_contract_documented_as_missing_runtime_guard(provider_api_harness):
+def test_invalid_response_contract_marks_job_failed(provider_api_harness):
     provider_api_harness.provider_client.statuses = ["invalid"]
     provider_api_harness.save_settings()
     project_id = provider_api_harness.create_project_with_keyframe()
@@ -165,13 +165,15 @@ def test_invalid_response_contract_documented_as_missing_runtime_guard(provider_
 
     response = provider_api_harness.poll(submitted["id"])
 
-    assert response.status_code == 200
-    job = response_data(response)["job"]
-    assert job["status"] == "completed"
-    assert job["output_path"]
+    assert response.status_code == 502
+    assert "unknown provider state" in response_error(response)["message"].lower()
+    job = response_data(provider_api_harness.get_job(submitted["id"]))["job"]
+    assert job["status"] == "failed"
+    assert job["output_path"] == ""
+    assert provider_api_harness.list_shots(project_id)[0]["video_path"] == ""
 
 
-def test_download_failure_contract_is_currently_a_missing_runtime_guard(tmp_path, monkeypatch):
+def test_download_failure_contract_marks_job_failed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     failing_client = DeterministicJimengRestClient(download_error="provider")
     harness = ProviderApiHarness.__new__(ProviderApiHarness)
@@ -206,8 +208,9 @@ def test_download_failure_contract_is_currently_a_missing_runtime_guard(tmp_path
 
     response = harness.poll(submitted["id"])
 
-    assert response.status_code == 500
+    assert response.status_code == 502
+    assert "download error" in response_error(response)["message"].lower()
     job = response_data(harness.get_job(submitted["id"]))["job"]
-    assert job["status"] == "submitted"
+    assert job["status"] == "failed"
     assert job["output_path"] == ""
     assert harness.list_shots(project_id)[0]["video_path"] == ""

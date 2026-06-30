@@ -93,7 +93,29 @@ class DeterministicJimengRestClient:
             raise VideoProviderTimeoutError("Jimeng download timeout.")
         if self.download_error == "provider":
             raise VideoProviderError("Jimeng download error.")
+        if self.download_error == "empty-body":
+            return b""
+        if self.download_error == "truncated-download":
+            return b"bad"
+        if self.download_error == "invalid-media":
+            return b"not-a-valid-provider-video"
         return f"contract-video downloaded from {result_url}".encode("utf-8")
+
+
+class MalformedJimengRestClient(DeterministicJimengRestClient):
+    def __init__(self, payload_kind):
+        super().__init__()
+        self.payload_kind = payload_kind
+
+    def get_result(self, submit_id, settings):
+        self.calls.append(("poll", submit_id, settings.get("model", "")))
+        if self.payload_kind == "malformed-json":
+            return {"not": "a JimengJobResult"}
+        if self.payload_kind == "empty-body":
+            return None
+        if self.payload_kind == "partial-response":
+            return JimengJobResult(status="completed")
+        return super().get_result(submit_id, settings)
 
 
 class ProviderApiHarness:
