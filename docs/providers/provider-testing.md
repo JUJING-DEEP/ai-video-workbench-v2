@@ -29,6 +29,8 @@ Key files:
 - `test_contract_interface.py`: generic provider contract compliance tests.
 - `test_jimeng_api_contract.py`: current Jimeng REST workflow contract tests
   through the existing FastAPI routes.
+- `test_runtime_guards.py`: runtime validation tests for malformed provider
+  states, failed downloads, invalid bind results, and retry exhaustion.
 
 ## Running Provider Contract Tests
 
@@ -56,6 +58,36 @@ A conforming provider must prove:
 - Malformed payloads are rejected before provider submission.
 - Invalid provider responses are not silently treated as successful completion.
 
+## Runtime Guard Checklist
+
+Provider runtime guards must cover:
+
+- invalid provider response objects
+- malformed JSON-like provider payloads
+- empty provider responses
+- partial provider responses missing required fields
+- missing local `submit_id`
+- unexpected local job statuses
+- unknown provider states
+- missing download URLs
+- empty downloads
+- truncated downloads
+- invalid media downloads
+- provider download errors
+- provider download timeouts
+- invalid bind results
+- duplicate bind attempts
+- timeout retry exhaustion
+
+Expected runtime behavior:
+
+- Mark provider response, download, and bind failures as local `failed` jobs.
+- Mark provider timeout failures as local `timeout` jobs.
+- Preserve the standard error envelope.
+- Do not create video assets for failed or timed-out jobs.
+- Do not bind shot `video_path` for failed or timed-out jobs.
+- Reject terminal-job polling instead of treating it as retry.
+
 ## Adding A Future Real Jimeng Adapter
 
 Before connecting a real Jimeng provider, add a test adapter that satisfies the
@@ -65,9 +97,8 @@ The adapter must remain skipped or mocked by default unless explicit integration
 credentials and opt-in flags are present. Real provider calls must never run in
 default CI.
 
-## Missing Runtime Guard Tracking
+## Runtime Guard Tracking
 
-Some provider contract cases may be documented before the runtime enforces them.
-When a test documents a missing runtime guard, record that gap in
-`PROVIDER_CONTRACT_TEST_REPORT.md` and do not claim real-provider readiness until
-the gap is closed.
+If a new provider behavior cannot be enforced yet, record the gap in the current
+provider report and do not claim real-provider readiness until the gap is
+closed.

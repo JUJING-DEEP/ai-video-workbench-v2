@@ -190,6 +190,33 @@ def get_jimeng_rest_provider() -> JimengRestProvider:
     return JimengRestProvider()
 
 
+def _fail_video_generation_job(repository, job_id: int, message: str):
+    return repository.update_video_generation_job(
+        job_id,
+        status="failed",
+        error_message=message,
+    )
+
+
+def _validate_jimeng_job_result(result):
+    if result is None or not hasattr(result, "status"):
+        raise VideoProviderError("Invalid provider response.")
+    if result.status not in {"processing", "completed", "failed"}:
+        raise VideoProviderError(f"Unknown provider state: {result.status}")
+    if result.status == "completed" and not getattr(result, "result_url", "").strip():
+        raise VideoProviderError("Jimeng provider completed without result_url.")
+
+
+def _validate_downloaded_video_bytes(video_bytes: bytes):
+    if not video_bytes:
+        raise VideoProviderError("Jimeng provider returned empty download.")
+    if len(video_bytes) < 16:
+        raise VideoProviderError("Jimeng provider returned invalid video download.")
+    accepted_prefixes = (b"jimeng-rest-video", b"contract-video", b"\x00\x00\x00", b"ftyp")
+    if not video_bytes.startswith(accepted_prefixes):
+        raise VideoProviderError("Jimeng provider returned invalid video media.")
+
+
 def _has_value(settings: dict, key: str) -> bool:
     return bool(str(settings.get(key, "")).strip())
 
@@ -558,17 +585,20 @@ async def poll_video_generation_job(
         raise HTTPException(status_code=409, detail="Cannot poll a terminal video job.")
     if not job["submit_id"]:
         raise HTTPException(status_code=409, detail="Cannot poll a video job without submit_id.")
+    if job["status"] not in {"submitted", "processing"}:
+        raise HTTPException(status_code=409, detail=f"Unexpected video job status: {job['status']}")
 
     settings = repository.get_provider_settings("jimeng")
     _validate_jimeng_rest_settings(settings)
 
     try:
         result = provider.get_result(job["submit_id"], settings)
+        _validate_jimeng_job_result(result)
     except VideoProviderTimeoutError as exc:
         job = repository.update_video_generation_job(job_id, status="timeout", error_message=str(exc))
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except VideoProviderError as exc:
-        job = repository.update_video_generation_job(job_id, status="failed", error_message=str(exc))
+        job = _fail_video_generation_job(repository, job_id, str(exc))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     if result.status == "processing":
@@ -584,21 +614,34 @@ async def poll_video_generation_job(
         )
         return jsonable_encoder({"job": job})
 
-    video_bytes = provider.download_video(result.result_url, settings)
+    try:
+        video_bytes = provider.download_video(result.result_url, settings)
+        _validate_downloaded_video_bytes(video_bytes)
+    except VideoProviderTimeoutError as exc:
+        job = repository.update_video_generation_job(job_id, status="timeout", error_message=str(exc))
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except VideoProviderError as exc:
+        job = _fail_video_generation_job(repository, job_id, str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     output_dir = Path("data") / "uploads" / str(job["project_id"]) / "generated" / "videos"
     output_dir.mkdir(parents=True, exist_ok=True)
     filename = f"jimeng-rest-job-{job_id}.mp4"
     output_path = output_dir / filename
     output_path.write_bytes(video_bytes)
 
-    asset = repository.create_asset(
-        job["project_id"],
-        asset_type="video",
-        name=filename,
-        path=output_path.as_posix(),
-        source="jimeng",
-    )
-    repository.bind_asset(job["project_id"], job["shot_id"], "video", asset["path"])
+    try:
+        repository.bind_asset(job["project_id"], job["shot_id"], "video", output_path.as_posix())
+        asset = repository.create_asset(
+            job["project_id"],
+            asset_type="video",
+            name=filename,
+            path=output_path.as_posix(),
+            source="jimeng",
+        )
+    except KeyError as exc:
+        job = _fail_video_generation_job(repository, job_id, f"Jimeng bind failed: {exc}")
+        raise HTTPException(status_code=502, detail=job["error_message"]) from exc
     job = repository.update_video_generation_job(
         job_id,
         status="completed",
