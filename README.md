@@ -65,6 +65,12 @@ v1.0.0-beta.2 聚焦稳定的本地工作台基础能力：解析固定格式分
 - **渲染计划生成**：为图片转视频和视频时长标准化生成结构化渲染计划。
 - **工作台 UI**：提供本地 `/video-workbench` 页面，用于导入分镜文本、查看镜头卡片和校验状态。
 
+### Roadmap / Provider Docs
+
+- [v1.1 Roadmap](docs/roadmap/v1.1-roadmap.md)
+- [Jimeng Provider Contract](docs/providers/jimeng-provider-contract.md)
+- [v1.1 Release Gates](docs/releases/v1.1-release-gates.md)
+
 ---
 
 ## 3. Technical Architecture / 技术架构图
