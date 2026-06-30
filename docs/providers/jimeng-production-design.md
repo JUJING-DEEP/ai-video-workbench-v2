@@ -123,6 +123,27 @@ Design rules:
 - Never log canonical requests that include raw secrets.
 - Never expose `secret_key` in exceptions, traces, or debug payloads.
 
+### Volcengine V4 Signing Overview
+
+Volcengine API requests use a V4-style AK/SK signing process. The production
+provider should treat signing as a separate deterministic transformation from
+an unsigned Jimeng request into a signed HTTP request.
+
+At a high level, the signer must:
+
+1. Normalize method, path, query parameters, selected headers, and hashed body.
+2. Build the canonical request.
+3. Build the string-to-sign using the request timestamp, region, service, and
+   credential scope.
+4. Derive the signing key from the secret key, date, region, and service.
+5. Produce the signature.
+6. Add the required signed headers before the HTTP transport sends the request.
+
+Production implementation should verify these details against official
+Volcengine SDK behavior or official signing documentation before any real
+provider call is enabled. The adapter skeleton's `signing_required=True` marker
+is only a boundary signal; it is not a signing implementation.
+
 ### Retry Policy
 
 Retries should apply only after the request has been signed and sent by the HTTP
@@ -262,6 +283,77 @@ Provider errors should be mapped into actionable local categories:
 
 Capture provider `request_id` when present. It is safe to log request ids, but
 not signed headers, raw canonical requests, `video_url`, or credential values.
+
+### Logging Strategy
+
+Logging should help operators debug request lifecycle issues without exposing
+credentials, signed request material, or short-lived provider URLs.
+
+Recommended log fields:
+
+- Local project id or job id.
+- Provider name: `jimeng_rest`.
+- Lifecycle phase: `submit`, `poll`, or `download`.
+- Remote `task_id` only after successful submit.
+- Provider `request_id` when present.
+- Remote status such as `in_queue`, `generating`, or `done`.
+- Local mapped status.
+- Retry attempt number.
+- Duration in milliseconds.
+- Error category and sanitized provider code.
+
+Fields that must be redacted or omitted:
+
+- `secret_key`.
+- Full Authorization or signature headers.
+- Raw canonical request strings.
+- Full `video_url`.
+- Prompt or user media URLs when logs may leave the trusted boundary.
+- Any environment variable value that contains credentials.
+
+### Observability
+
+Production readiness should include metrics that make provider health,
+latency, and cost pressure visible without requiring access to raw logs.
+
+Recommended metrics:
+
+- Submit count by result: success, validation failure, provider failure,
+  timeout, and rate limited.
+- Poll count by remote status.
+- Download count by result.
+- Submit latency histogram.
+- Poll latency histogram.
+- Download latency histogram.
+- End-to-end generation duration from submit to local file persistence.
+- Retry count by phase and error code.
+- Rate-limit events by provider code.
+- Estimated generated seconds and estimated cost by project.
+- Active Jimeng jobs and queued Jimeng jobs.
+
+Recommended traces:
+
+- One trace per local generation job.
+- Spans for submit, each poll request, and download.
+- Sanitized attributes only; never include secrets or signed headers.
+
+### Failure Recovery
+
+Recovery should be phase-specific:
+
+- Submit validation failure: fail fast and ask the user to change input.
+- Submit timeout before confirmed task id: do not blindly resubmit unless
+  official idempotency behavior is confirmed.
+- Submit provider 429: back off and keep the local job pending if policy allows.
+- Poll timeout: retry within the local job timeout window.
+- Poll `not_found`: fail the current job; do not keep polling the same task.
+- Poll `expired`: fail the current job; require explicit resubmission.
+- Completed poll with invalid `video_url`: fail as provider contract error.
+- Download timeout: retry only while the 1-hour URL window is still credible.
+- Download expired URL: fail the current job and require resubmission.
+
+All recovery paths should preserve the local job's audit trail: last provider
+code, last provider request id, phase, retry count, and sanitized message.
 
 ## Security Checklist
 
