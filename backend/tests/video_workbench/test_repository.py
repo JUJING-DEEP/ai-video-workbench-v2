@@ -118,3 +118,50 @@ def test_replace_project_shots_missing_project_raises_key_error(
                 )
             ],
         )
+
+
+def test_render_plan_uses_saved_timeline_order(temp_db_path, temp_projects_root, monkeypatch):
+    monkeypatch.chdir(temp_projects_root.parent)
+    repo = VideoWorkbenchRepository(temp_db_path, temp_projects_root)
+    repo.init_schema()
+    project = repo.create_project("Coffee Demo", "", "", None)
+    repo.replace_project_shots(
+        project["id"],
+        [
+            Shot(
+                shot_id=1,
+                start_seconds=0,
+                end_seconds=4,
+                duration_seconds=4,
+                kind=ShotKind.IMAGE,
+                mode=ShotMode.MODE_B,
+                video_path="demo/assets/coffee-shot-001.mp4",
+            ),
+            Shot(
+                shot_id=2,
+                start_seconds=4,
+                end_seconds=8,
+                duration_seconds=4,
+                kind=ShotKind.KEY_NODE_VIDEO,
+                mode=ShotMode.KEY_NODE,
+                video_path="demo/assets/coffee-shot-002.mp4",
+            ),
+            Shot(
+                shot_id=3,
+                start_seconds=8,
+                end_seconds=12,
+                duration_seconds=4,
+                kind=ShotKind.IMAGE,
+                mode=ShotMode.MODE_B,
+                video_path="demo/assets/coffee-shot-003.mp4",
+            ),
+        ],
+    )
+
+    repo.reorder_shots(project["id"], [2, 1, 3])
+    render_plan = repo.create_render_plan(project["id"])
+    exported = repo.export_render_plan(project["id"])
+
+    assert [item["shot_id"] for item in repo.get_timeline(project["id"])["shots"]] == [2, 1, 3]
+    assert [item["shot_id"] for item in render_plan["items"]] == [2, 1, 3]
+    assert [shot["shot_id"] for shot in exported["render_plan"]["shots"]] == [2, 1, 3]

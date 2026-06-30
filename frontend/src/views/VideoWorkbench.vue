@@ -22,6 +22,10 @@
           {{ isCreatingProject ? '创建中...' : '创建项目' }}
         </button>
 
+        <button type="button" data-testid="import-demo" :disabled="isImportingDemo" @click="handleImportDemo">
+          {{ isImportingDemo ? '导入中...' : 'Import Demo' }}
+        </button>
+
         <div class="video-workbench__field">
           <label for="project-select">当前项目</label>
           <select id="project-select" v-model="selectedProjectId" @change="handleSelectProject">
@@ -36,6 +40,7 @@
       <p v-if="selectedProject" class="video-workbench__project-status">
         当前项目：{{ selectedProject.title }} / {{ selectedProject.slug }}
       </p>
+      <p v-if="demoImportMessage" class="video-workbench__upload-message">{{ demoImportMessage }}</p>
 
       <ProviderSettingsPanel
         :nano-banana-settings="nanoBananaSettings"
@@ -185,6 +190,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import demoProject from '../../../demo/coffee-commercial.json'
 import AssetLibraryPanel from '../components/video-workbench/AssetLibraryPanel.vue'
 import ProviderSettingsPanel from '../components/video-workbench/ProviderSettingsPanel.vue'
 import ShotTimeline from '../components/video-workbench/ShotTimeline.vue'
@@ -229,6 +235,7 @@ const error = ref('')
 const assetPaths = ref({ image: '', keyframe: '', video: '' })
 const assetPreviews = ref({ image: null, keyframe: null, video: null })
 const isCreatingProject = ref(false)
+const isImportingDemo = ref(false)
 const isParsing = ref(false)
 const savingAssetType = ref('')
 const uploadAssetType = ref('image')
@@ -270,6 +277,7 @@ const isExportingRenderPlan = ref(false)
 const timeline = ref({ project_id: null, shots: [] })
 const timelineMessage = ref('')
 const isSavingTimeline = ref(false)
+const demoImportMessage = ref('')
 
 const assetFields = [
   { type: 'image', label: '图片', placeholder: '/path/to/shot-001.png', accept: 'image/*' },
@@ -439,6 +447,56 @@ async function handleCreateProject() {
   }
 }
 
+async function handleImportDemo() {
+  error.value = ''
+  demoImportMessage.value = ''
+  isImportingDemo.value = true
+
+  try {
+    const payload = await createProject({
+      title: demoProject.project.title,
+      role_card: demoProject.project.role_card,
+      audio_path: demoProject.project.audio_path,
+      audio_duration_seconds: demoProject.project.audio_duration_seconds
+    })
+    const project = payload.project
+    await refreshProjects()
+    selectedProjectId.value = String(project.id)
+    storyboardText.value = demoProject.storyboard_text
+    await importStoryboard(project.id, demoProject.storyboard_text.trim())
+
+    for (const asset of demoProject.assets) {
+      await createProjectAsset(project.id, {
+        asset_type: asset.asset_type,
+        name: asset.name,
+        path: asset.path,
+        source: asset.source,
+        prompt: asset.prompt
+      })
+    }
+
+    for (const shot of demoProject.shots) {
+      for (const assetType of ['image', 'keyframe', 'video']) {
+        const path = shot[`${assetType}_path`]
+        if (path) {
+          await bindShotAsset(project.id, shot.shot_id, assetType, path)
+        }
+      }
+    }
+
+    await reorderShots(
+      project.id,
+      [...demoProject.timeline].sort((left, right) => left.order - right.order).map((shot) => shot.shot_id)
+    )
+    await loadProjectShots(project.id)
+    demoImportMessage.value = 'Demo imported.'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '导入 Demo 失败'
+  } finally {
+    isImportingDemo.value = false
+  }
+}
+
 async function handleSelectProject() {
   error.value = ''
 
@@ -496,13 +554,16 @@ async function handleParse() {
   isParsing.value = true
 
   try {
-    parsed.value = selectedProject.value
-      ? await importStoryboard(selectedProject.value.id, trimmedText)
-      : await parseStoryboard(trimmedText)
-    shots.value = parsed.value.shots || []
-    selectedShot.value = shots.value[0] || null
-    syncAssetPaths()
-    validationReport.value = buildValidationReport(shots.value)
+    if (selectedProject.value) {
+      parsed.value = await importStoryboard(selectedProject.value.id, trimmedText)
+      await loadProjectShots(selectedProject.value.id)
+    } else {
+      parsed.value = await parseStoryboard(trimmedText)
+      shots.value = parsed.value.shots || []
+      selectedShot.value = shots.value[0] || null
+      syncAssetPaths()
+      validationReport.value = buildValidationReport(shots.value)
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '解析分镜失败'
   } finally {
@@ -959,7 +1020,7 @@ function buildValidationReport(currentShots) {
 
 .video-workbench__project-bar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 260px);
+  grid-template-columns: minmax(180px, 1fr) auto auto minmax(180px, 260px);
   gap: 12px;
   align-items: end;
   margin-bottom: 24px;

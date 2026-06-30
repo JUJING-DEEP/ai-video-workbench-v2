@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import demoProject from '../../demo/coffee-commercial.json'
 import VideoWorkbench from '../src/views/VideoWorkbench.vue'
@@ -45,12 +46,18 @@ vi.mock('../src/services/videoWorkbenchApi', () => ({
 }))
 
 async function flushPromises() {
-  await Promise.resolve()
-  await Promise.resolve()
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve()
+    await nextTick()
+  }
 }
 
 describe('VideoWorkbench browser E2E smoke', () => {
+  let currentTimeline
+
   beforeEach(() => {
+    currentTimeline = demoProject.timeline
+
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:coffee-preview'),
       revokeObjectURL: vi.fn()
@@ -74,49 +81,52 @@ describe('VideoWorkbench browser E2E smoke', () => {
       path: demoProject.assets[0].path,
       asset_type: demoProject.assets[0].asset_type
     })
-    createProjectAsset.mockResolvedValue({ asset: demoProject.assets[0] })
-    bindShotAsset.mockResolvedValue({ shot: demoProject.shots[0] })
-    getTimeline.mockResolvedValue({
-      project_id: demoProject.project.id,
-      shots: demoProject.timeline
+    createProjectAsset.mockImplementation((_projectId, asset) => Promise.resolve({ asset }))
+    bindShotAsset.mockImplementation((_projectId, shotId) => {
+      return Promise.resolve({ shot: demoProject.shots.find((shot) => shot.shot_id === shotId) })
     })
-    reorderShots.mockResolvedValue({
+    getTimeline.mockImplementation(() => Promise.resolve({
       project_id: demoProject.project.id,
-      shot_ids: [2, 1, 3]
+      shots: currentTimeline
+    }))
+    reorderShots.mockImplementation((_projectId, shotIds) => {
+      currentTimeline = shotIds.map((shotId, index) => {
+        const shot = demoProject.timeline.find((item) => item.shot_id === shotId)
+        return { ...shot, order: index + 1 }
+      })
+      return Promise.resolve({
+        project_id: demoProject.project.id,
+        shot_ids: shotIds
+      })
     })
-    generateRenderPlan.mockResolvedValue(demoProject.render_plan)
+    generateRenderPlan.mockImplementation(() => Promise.resolve({
+      ...demoProject.render_plan,
+      items: currentTimeline.map((shot, index) => ({
+        shot_id: shot.shot_id,
+        order: index + 1,
+        video_path: shot.video_path,
+        duration_seconds: shot.duration_seconds
+      }))
+    }))
     getRenderPlan.mockResolvedValue(demoProject.render_plan)
-    exportRenderPlan.mockResolvedValue({
+    exportRenderPlan.mockImplementation(() => Promise.resolve({
       path: demoProject.render_plan.export_path,
-      render_plan: demoProject.render_plan
-    })
+      render_plan: {
+        project_id: demoProject.project.id,
+        shots: currentTimeline.map((shot) => ({
+          shot_id: shot.shot_id,
+          video_path: shot.video_path,
+          duration_seconds: shot.duration_seconds
+        }))
+      }
+    }))
   })
 
-  it('imports the coffee demo, uploads and binds an asset, reorders timeline, and exports a render plan', async () => {
+  it('imports the coffee demo, verifies assets, reorders timeline, and exports a render plan', async () => {
     const wrapper = mount(VideoWorkbench)
     await flushPromises()
 
-    await wrapper.find('#project-title').setValue(demoProject.project.title)
-    await wrapper.find('.video-workbench__project-bar button').trigger('click')
-    await flushPromises()
-
-    await wrapper.find('textarea[aria-label="粘贴 Google AI Studio 分镜文本"]').setValue(
-      demoProject.storyboard_text
-    )
-    await wrapper.find('.video-workbench__header button').trigger('click')
-    await flushPromises()
-
-    const file = new File(['coffee-image'], demoProject.assets[0].name, { type: 'image/png' })
-    const uploadInput = wrapper.find('#asset-library-upload-file')
-    Object.defineProperty(uploadInput.element, 'files', {
-      value: [file],
-      configurable: true
-    })
-    await uploadInput.trigger('change')
-    await wrapper.find('[data-testid="upload-library-asset"]').trigger('click')
-    await flushPromises()
-
-    await wrapper.find(`[data-testid="bind-library-asset-${demoProject.assets[0].id}-image"]`).trigger('click')
+    await wrapper.find('[data-testid="import-demo"]').trigger('click')
     await flushPromises()
 
     await wrapper.find('[data-testid="move-shot-2-up"]').trigger('click')
@@ -128,23 +138,35 @@ describe('VideoWorkbench browser E2E smoke', () => {
     await wrapper.find('[data-testid="export-render-plan"]').trigger('click')
     await flushPromises()
 
+    const renderRows = wrapper
+      .find('[aria-label="Render Pipeline"]')
+      .findAll('tbody tr')
+      .map((row) => row.text())
+
     expect(createProject).toHaveBeenCalledWith({
       title: demoProject.project.title,
-      role_card: '',
-      audio_path: '',
-      audio_duration_seconds: null
+      role_card: demoProject.project.role_card,
+      audio_path: demoProject.project.audio_path,
+      audio_duration_seconds: demoProject.project.audio_duration_seconds
     })
     expect(importStoryboard).toHaveBeenCalledWith(demoProject.project.id, demoProject.storyboard_text.trim())
-    expect(uploadProjectAsset).toHaveBeenCalledWith(demoProject.project.id, 'image', file)
+    expect(createProjectAsset).toHaveBeenCalledTimes(demoProject.assets.length)
     expect(bindShotAsset).toHaveBeenCalledWith(
       demoProject.project.id,
       demoProject.shots[0].shot_id,
       'image',
-      demoProject.assets[0].path
+      demoProject.shots[0].image_path
     )
+    expect(wrapper.text()).toContain('coffee-shot-001.png')
+    expect(reorderShots).toHaveBeenCalledWith(demoProject.project.id, [1, 2, 3])
     expect(reorderShots).toHaveBeenCalledWith(demoProject.project.id, [2, 1, 3])
     expect(generateRenderPlan).toHaveBeenCalledWith(demoProject.project.id)
     expect(exportRenderPlan).toHaveBeenCalledWith(demoProject.project.id)
+    expect(renderRows).toEqual([
+      '#1demo/assets/coffee-shot-002.mp44s',
+      '#2demo/assets/coffee-shot-001.mp44s',
+      '#3demo/assets/coffee-shot-003.mp44s'
+    ])
     expect(wrapper.text()).toContain('Render plan exported.')
   })
 })
