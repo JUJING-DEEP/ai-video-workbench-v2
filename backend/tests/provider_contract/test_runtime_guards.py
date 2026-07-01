@@ -8,6 +8,8 @@ from app.video_workbench.repository import VideoWorkbenchRepository
 
 from .fixtures import (
     DeterministicJimengRestClient,
+    FakeVideoDownloadTransport,
+    FakeVideoNormalizeTransport,
     MalformedJimengRestClient,
     ProviderApiHarness,
     response_data,
@@ -28,11 +30,25 @@ def make_harness(tmp_path, monkeypatch, provider_client):
         projects_root=tmp_path / "projects",
     )
     repository.init_schema()
+    download_transport = FakeVideoDownloadTransport()
+    normalize_transport = FakeVideoNormalizeTransport()
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_repository] = lambda: repository
-    app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(provider_client)
-    return ProviderApiHarness(TestClient(app, raise_server_exceptions=False), provider_client), repository
+    app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(
+        provider_client,
+        download_transport=download_transport,
+        normalize_transport=normalize_transport,
+    )
+    return (
+        ProviderApiHarness(
+            TestClient(app, raise_server_exceptions=False),
+            provider_client,
+            download_transport,
+            normalize_transport,
+        ),
+        repository,
+    )
 
 
 def create_submitted_job(harness):

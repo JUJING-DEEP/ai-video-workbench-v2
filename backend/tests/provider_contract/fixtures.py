@@ -87,6 +87,42 @@ class DeterministicJimengRestClient:
             return JimengJobResult(status="invalid-provider-status", result_url=self.result_url)
         return JimengJobResult(status="completed", result_url=self.result_url)
 
+
+class FakeVideoDownloadTransport:
+    def __init__(self, payload=b"contract-video-mp4", error=None):
+        self.payload = payload
+        self.error = error
+        self.calls = []
+
+    def download(self, video_url, timeout_seconds):
+        self.calls.append((video_url, timeout_seconds))
+        if self.error == "timeout":
+            raise VideoProviderTimeoutError("Jimeng video download timeout.")
+        if self.error == "provider":
+            raise VideoProviderError("Jimeng video download failed.")
+        return self.payload
+
+
+class FakeVideoNormalizeTransport:
+    def __init__(self, durations=None, trim_error=None):
+        self.durations = list(durations or [2.0])
+        self.trim_error = trim_error
+        self.probe_calls = []
+        self.trim_calls = []
+
+    def probe_duration(self, path):
+        self.probe_calls.append(str(path))
+        if self.durations:
+            return self.durations.pop(0)
+        return 2.0
+
+    def trim(self, input_path, output_path, target_duration_seconds):
+        self.trim_calls.append((str(input_path), str(output_path), target_duration_seconds))
+        if self.trim_error:
+            raise VideoProviderError("Jimeng video trim failed.")
+        output_path.write_bytes(input_path.read_bytes())
+
+
 class MalformedJimengRestClient(DeterministicJimengRestClient):
     def __init__(self, payload_kind):
         super().__init__()
@@ -104,9 +140,11 @@ class MalformedJimengRestClient(DeterministicJimengRestClient):
 
 
 class ProviderApiHarness:
-    def __init__(self, client, provider_client=None):
+    def __init__(self, client, provider_client=None, download_transport=None, normalize_transport=None):
         self.client = client
         self.provider_client = provider_client
+        self.download_transport = download_transport
+        self.normalize_transport = normalize_transport
 
     def save_settings(
         self,
@@ -176,11 +214,17 @@ def provider_api_harness(tmp_path, monkeypatch):
     repository.init_schema()
 
     provider_client = DeterministicJimengRestClient()
+    download_transport = FakeVideoDownloadTransport()
+    normalize_transport = FakeVideoNormalizeTransport()
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_repository] = lambda: repository
-    app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(provider_client)
-    return ProviderApiHarness(TestClient(app), provider_client)
+    app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(
+        provider_client,
+        download_transport=download_transport,
+        normalize_transport=normalize_transport,
+    )
+    return ProviderApiHarness(TestClient(app), provider_client, download_transport, normalize_transport)
 
 
 @dataclass

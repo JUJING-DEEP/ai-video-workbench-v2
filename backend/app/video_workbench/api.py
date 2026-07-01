@@ -19,6 +19,7 @@ from .nano_banana import NanoBananaClient, NanoBananaError
 from .parser import parse_storyboard_text
 from .providers.jimeng_rest_provider import JimengRestProvider
 from .repository import VideoWorkbenchRepository
+from .storage import ProjectStorage
 from .video_provider import VideoProviderError, VideoProviderTimeoutError
 from .video_provider_registry import get_video_provider
 
@@ -606,14 +607,35 @@ async def poll_video_generation_job(
 
     video_url = result.result_url
     filename = f"jimeng-rest-job-{job_id}.mp4"
+    try:
+        project = repository.get_project(job["project_id"])
+        shots = repository.get_project_shots(job["project_id"])
+        shot = next(shot for shot in shots if shot.shot_id == job["shot_id"])
+        storage = ProjectStorage(repository.projects_root)
+        output_path = storage.ensure_project_dirs(project["slug"])["assets_videos"] / filename
+        video_path = provider.download_and_normalize_video(
+            video_url=video_url,
+            output_path=output_path,
+            target_duration_seconds=shot.duration_seconds,
+            settings=settings,
+        )
+    except StopIteration as exc:
+        job = _fail_video_generation_job(repository, job_id, "Jimeng bind failed: shot not found.")
+        raise HTTPException(status_code=502, detail=job["error_message"]) from exc
+    except VideoProviderTimeoutError as exc:
+        job = repository.update_video_generation_job(job_id, status="timeout", error_message=str(exc))
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except VideoProviderError as exc:
+        job = _fail_video_generation_job(repository, job_id, str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     try:
-        repository.bind_asset(job["project_id"], job["shot_id"], "video", video_url)
+        repository.bind_asset(job["project_id"], job["shot_id"], "video", video_path)
         asset = repository.create_asset(
             job["project_id"],
             asset_type="video",
             name=filename,
-            path=video_url,
+            path=video_path,
             source="jimeng",
         )
     except KeyError as exc:
