@@ -41,6 +41,11 @@ class JimengRestSubmitTransport:
         raise NotImplementedError("Jimeng REST submit transport is not configured.")
 
 
+class JimengRestPollTransport:
+    def post_json(self, request: JimengRestRequest, body_json: str, timeout_seconds: int) -> dict:
+        raise NotImplementedError("Jimeng REST poll transport is not configured.")
+
+
 def _setting(settings: dict, key: str, default: str) -> str:
     value = str(settings.get(key, "")).strip()
     return value or default
@@ -123,6 +128,40 @@ def parse_submit_response(payload: dict) -> str:
     return str(task_id).strip()
 
 
+def _signed_request(
+    request: JimengRestRequest,
+    body_json: str,
+    access_key: str,
+    secret_key: str,
+    request_datetime: datetime | None,
+) -> JimengRestRequest:
+    signed = sign_request(
+        method=request.method,
+        path="/",
+        query=request.query,
+        headers={
+            **request.headers,
+            "Host": _endpoint_host(request.endpoint),
+        },
+        payload=body_json,
+        access_key=access_key,
+        secret_key=secret_key,
+        region=request.region,
+        service=request.service,
+        request_datetime=request_datetime,
+    )
+    request.headers = signed.headers
+    return request
+
+
+def _credentials(settings: dict) -> tuple[str, str]:
+    access_key = _optional_setting(settings, "access_key")
+    secret_key = _optional_setting(settings, "secret_key")
+    if not access_key or not secret_key:
+        raise VideoProviderError("Jimeng REST credentials are required.")
+    return access_key, secret_key
+
+
 class JimengRestSubmitClient:
     def __init__(
         self,
@@ -138,10 +177,7 @@ class JimengRestSubmitClient:
         if self.transport is None:
             raise VideoProviderError("Jimeng REST submit transport is not configured.")
 
-        access_key = _optional_setting(settings, "access_key")
-        secret_key = _optional_setting(settings, "secret_key")
-        if not access_key or not secret_key:
-            raise VideoProviderError("Jimeng REST credentials are required for submit.")
+        access_key, secret_key = _credentials(settings)
 
         prompt = _optional_setting(settings, "prompt")
         if not prompt:
@@ -153,22 +189,13 @@ class JimengRestSubmitClient:
             settings=settings,
         )
         body_json = _json_body(request.body)
-        signed = sign_request(
-            method=request.method,
-            path="/",
-            query=request.query,
-            headers={
-                **request.headers,
-                "Host": _endpoint_host(request.endpoint),
-            },
-            payload=body_json,
+        request = _signed_request(
+            request=request,
+            body_json=body_json,
             access_key=access_key,
             secret_key=secret_key,
-            region=request.region,
-            service=request.service,
             request_datetime=self.request_datetime,
         )
-        request.headers = signed.headers
 
         try:
             payload = self.transport.post_json(request, body_json, self.timeout_seconds)
@@ -182,6 +209,56 @@ class JimengRestSubmitClient:
             raise VideoProviderError(f"Jimeng submit request failed: {exc}") from exc
 
         return parse_submit_response(payload)
+
+
+class JimengRestPollClient:
+    def __init__(
+        self,
+        transport: JimengRestPollTransport | None = None,
+        request_datetime: datetime | None = None,
+        timeout_seconds: int = 10,
+    ):
+        self.transport = transport
+        self.request_datetime = request_datetime
+        self.timeout_seconds = timeout_seconds
+
+    def poll_job_status(self, task_id: str, settings: dict) -> JimengJobResult:
+        if self.transport is None:
+            raise VideoProviderError("Jimeng REST poll transport is not configured.")
+
+        value = str(task_id or "").strip()
+        if not value:
+            raise VideoProviderError("Jimeng REST poll task_id is required.")
+
+        access_key, secret_key = _credentials(settings)
+        request = build_poll_request(value, settings)
+        body_json = _json_body(request.body)
+        request = _signed_request(
+            request=request,
+            body_json=body_json,
+            access_key=access_key,
+            secret_key=secret_key,
+            request_datetime=self.request_datetime,
+        )
+
+        try:
+            payload = self.transport.post_json(request, body_json, self.timeout_seconds)
+        except TimeoutError as exc:
+            raise VideoProviderTimeoutError("Jimeng poll request timeout.") from exc
+        except VideoProviderTimeoutError:
+            raise
+        except VideoProviderError:
+            raise
+        except Exception as exc:
+            raise VideoProviderError(f"Jimeng poll request failed: {exc}") from exc
+
+        return parse_poll_response(payload)
+
+    def retrieve_video_url(self, task_id: str, settings: dict) -> str:
+        result = self.poll_job_status(task_id, settings)
+        if result.status != "completed":
+            raise VideoProviderError("Jimeng task is not completed; video_url is not available.")
+        return validate_video_url(result.result_url)
 
 
 def build_poll_request(task_id: str, settings: dict) -> JimengRestRequest:

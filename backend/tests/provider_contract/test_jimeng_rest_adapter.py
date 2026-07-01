@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime, timezone
 
 from app.video_workbench.providers.jimeng_rest_provider import (
+    JimengRestPollClient,
     JimengRestSubmitClient,
     build_poll_request,
     build_submit_request,
@@ -39,6 +40,25 @@ class FakeSubmitTransport:
         self.calls.append((request, body_json, timeout_seconds))
         if self.error == "timeout":
             raise TimeoutError("submit timed out")
+        return self.payload
+
+
+class FakePollTransport:
+    def __init__(self, payload=None, error=None):
+        self.payload = payload or {
+            "code": 10000,
+            "message": "Success",
+            "data": {"status": "generating"},
+        }
+        self.error = error
+        self.calls = []
+
+    def post_json(self, request, body_json, timeout_seconds):
+        self.calls.append((request, body_json, timeout_seconds))
+        if self.error == "timeout":
+            raise TimeoutError("poll timed out")
+        if self.error == "signature":
+            raise PermissionError("signature mismatch")
         return self.payload
 
 
@@ -205,6 +225,155 @@ def test_poll_response_parses_completed_status_and_video_url():
 
     assert result.status == "completed"
     assert result.result_url == "https://results.example/generated.mp4"
+
+
+def test_real_poll_client_signs_request_and_returns_processing_status():
+    transport = FakePollTransport()
+    client = JimengRestPollClient(
+        transport=transport,
+        request_datetime=FIXED_TIME,
+    )
+
+    result = client.poll_job_status("7392616336519610409", SETTINGS)
+
+    assert result.status == "processing"
+    assert result.result_url == ""
+    assert len(transport.calls) == 1
+    request, body_json, timeout_seconds = transport.calls[0]
+    assert timeout_seconds == 10
+    assert request.query == {
+        "Action": "CVSync2AsyncGetResult",
+        "Version": "2022-08-31",
+    }
+    assert request.body == {
+        "req_key": "jimeng_ti2v_v30_pro",
+        "task_id": "7392616336519610409",
+    }
+    assert '"task_id":"7392616336519610409"' in body_json
+    assert request.headers["Host"] == "visual.volcengineapi.com"
+    assert request.headers["X-Date"] == "20260630T123456Z"
+    assert request.headers["Authorization"].startswith(
+        "HMAC-SHA256 Credential=ak-test/20260630/cn-north-1/cv/request"
+    )
+
+
+def test_real_poll_client_returns_completed_status_and_video_url():
+    client = JimengRestPollClient(
+        transport=FakePollTransport(
+            {
+                "code": 10000,
+                "message": "Success",
+                "data": {
+                    "status": "done",
+                    "video_url": "https://results.example/generated.mp4",
+                },
+            }
+        ),
+        request_datetime=FIXED_TIME,
+    )
+
+    result = client.poll_job_status("7392616336519610409", SETTINGS)
+
+    assert result.status == "completed"
+    assert result.result_url == "https://results.example/generated.mp4"
+
+
+def test_real_poll_client_retrieves_completed_video_url():
+    client = JimengRestPollClient(
+        transport=FakePollTransport(
+            {
+                "code": 10000,
+                "message": "Success",
+                "data": {
+                    "status": "done",
+                    "video_url": "https://results.example/generated.mp4",
+                },
+            }
+        ),
+        request_datetime=FIXED_TIME,
+    )
+
+    video_url = client.retrieve_video_url("7392616336519610409", SETTINGS)
+
+    assert video_url == "https://results.example/generated.mp4"
+
+
+def test_real_poll_client_retrieve_video_url_rejects_processing_status():
+    client = JimengRestPollClient(
+        transport=FakePollTransport(),
+        request_datetime=FIXED_TIME,
+    )
+
+    with pytest.raises(VideoProviderError, match="not completed"):
+        client.retrieve_video_url("7392616336519610409", SETTINGS)
+
+
+def test_real_poll_client_maps_provider_failure_status():
+    client = JimengRestPollClient(
+        transport=FakePollTransport(
+            {
+                "code": 10000,
+                "message": "Success",
+                "data": {"status": "not_found"},
+            }
+        ),
+        request_datetime=FIXED_TIME,
+    )
+
+    with pytest.raises(VideoProviderError, match="not_found"):
+        client.poll_job_status("missing-task", SETTINGS)
+
+
+def test_real_poll_client_maps_timeout():
+    client = JimengRestPollClient(
+        transport=FakePollTransport(error="timeout"),
+        request_datetime=FIXED_TIME,
+    )
+
+    with pytest.raises(VideoProviderTimeoutError, match="Jimeng poll request timeout"):
+        client.poll_job_status("7392616336519610409", SETTINGS)
+
+
+def test_real_poll_client_maps_signature_error():
+    client = JimengRestPollClient(
+        transport=FakePollTransport(error="signature"),
+        request_datetime=FIXED_TIME,
+    )
+
+    with pytest.raises(VideoProviderError, match="signature mismatch"):
+        client.poll_job_status("7392616336519610409", SETTINGS)
+
+
+def test_real_poll_client_rejects_missing_task_id_before_transport_call():
+    transport = FakePollTransport()
+    client = JimengRestPollClient(
+        transport=transport,
+        request_datetime=FIXED_TIME,
+    )
+
+    with pytest.raises(VideoProviderError, match="task_id"):
+        client.poll_job_status("", SETTINGS)
+
+    assert transport.calls == []
+
+
+def test_real_poll_client_rejects_missing_credentials_before_transport_call():
+    transport = FakePollTransport()
+    client = JimengRestPollClient(
+        transport=transport,
+        request_datetime=FIXED_TIME,
+    )
+
+    with pytest.raises(VideoProviderError, match="credentials"):
+        client.poll_job_status(
+            "7392616336519610409",
+            {
+                **SETTINGS,
+                "secret_key": "",
+            },
+        )
+
+    assert transport.calls == []
 
 
 def test_invalid_poll_response_returns_provider_error():
