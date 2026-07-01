@@ -21,6 +21,19 @@ from app.video_workbench.providers.jimeng_rest_provider import FakeJimengRestCli
 from app.video_workbench.repository import VideoWorkbenchRepository
 
 
+class FakeVideoDownloadTransport:
+    def download(self, video_url, timeout_seconds):
+        return b"jimeng-rest-downloaded-video"
+
+
+class FakeVideoNormalizeTransport:
+    def probe_duration(self, path):
+        return 2.0
+
+    def trim(self, input_path, output_path, target_duration_seconds):
+        output_path.write_bytes(input_path.read_bytes())
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -40,7 +53,9 @@ def client(tmp_path, monkeypatch):
     app.include_router(router)
     app.dependency_overrides[get_repository] = lambda: repository
     app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(
-        FakeJimengRestClient()
+        FakeJimengRestClient(),
+        download_transport=FakeVideoDownloadTransport(),
+        normalize_transport=FakeVideoNormalizeTransport(),
     )
     return TestClient(app)
 
@@ -1660,12 +1675,13 @@ def test_poll_video_job_completed_creates_asset(client):
     assert response.status_code == 200
     job = response_data(response)["job"]
     assert job["status"] == "completed"
-    assert job["output_path"] == job["result_url"]
+    assert job["output_path"].endswith("assets/videos/jimeng-rest-job-1.mp4")
+    assert Path(job["output_path"]).read_bytes() == b"jimeng-rest-downloaded-video"
     assert job["result_url"].startswith("https://jimeng.example/results/")
     assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["asset_type"] == "video"
     assert assets[0]["source"] == "jimeng"
-    assert assets[0]["path"] == job["result_url"]
+    assert assets[0]["path"] == job["output_path"]
 
 
 def test_poll_video_job_completed_binds_video(client):

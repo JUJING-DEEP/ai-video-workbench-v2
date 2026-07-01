@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .fixtures import (
     response_data,
     response_error,
@@ -35,7 +37,7 @@ def test_poll_job_contract_keeps_processing_state(provider_api_harness):
     assert polled_job["output_path"] == ""
 
 
-def test_retrieve_and_bind_contract_creates_remote_asset_and_updates_shot(provider_api_harness):
+def test_download_and_bind_contract_creates_local_asset_and_updates_shot(provider_api_harness):
     provider_api_harness.save_settings()
     project_id = provider_api_harness.create_project_with_keyframe()
     submitted = response_data(provider_api_harness.submit(project_id))["job"]
@@ -46,15 +48,69 @@ def test_retrieve_and_bind_contract_creates_remote_asset_and_updates_shot(provid
     completed = response_data(response)["job"]
     assert completed["status"] == "completed"
     assert completed["result_url"] == "https://jimeng.example/results/contract-job.mp4"
-    assert completed["output_path"] == completed["result_url"]
-    assert not any(call[0] == "download" for call in provider_api_harness.provider_client.calls)
+    assert completed["output_path"].endswith("projects/provider-contract/assets/videos/jimeng-rest-job-1.mp4")
+    assert Path(completed["output_path"]).read_bytes() == b"contract-video-mp4"
+    assert provider_api_harness.download_transport.calls == [
+        ("https://jimeng.example/results/contract-job.mp4", 60)
+    ]
+    assert provider_api_harness.normalize_transport.probe_calls == [completed["output_path"]]
+    assert provider_api_harness.normalize_transport.trim_calls == []
 
     assets = provider_api_harness.list_assets(project_id)
     shots = provider_api_harness.list_shots(project_id)
     assert assets[0]["asset_type"] == "video"
     assert assets[0]["source"] == "jimeng"
-    assert assets[0]["path"] == completed["result_url"]
+    assert assets[0]["path"] == completed["output_path"]
     assert shots[0]["video_path"] == completed["output_path"]
+
+
+def test_completed_video_longer_than_shot_duration_is_trimmed(provider_api_harness):
+    provider_api_harness.normalize_transport.durations = [2.5, 2.0]
+    provider_api_harness.save_settings()
+    project_id = provider_api_harness.create_project_with_keyframe()
+    submitted = response_data(provider_api_harness.submit(project_id))["job"]
+
+    response = provider_api_harness.poll(submitted["id"])
+
+    assert response.status_code == 200
+    completed = response_data(response)["job"]
+    output_path = completed["output_path"]
+    assert provider_api_harness.normalize_transport.probe_calls == [output_path, output_path]
+    assert provider_api_harness.normalize_transport.trim_calls == [
+        (output_path, output_path.replace(".mp4", ".trimmed.mp4"), 2.0)
+    ]
+
+
+def test_trimmed_video_still_longer_than_shot_duration_marks_job_failed(provider_api_harness):
+    provider_api_harness.normalize_transport.durations = [2.5, 2.4]
+    provider_api_harness.save_settings()
+    project_id = provider_api_harness.create_project_with_keyframe()
+    submitted = response_data(provider_api_harness.submit(project_id))["job"]
+
+    response = provider_api_harness.poll(submitted["id"])
+
+    assert response.status_code == 502
+    assert "duration" in response_error(response)["message"].lower()
+    job = response_data(provider_api_harness.get_job(submitted["id"]))["job"]
+    assert job["status"] == "failed"
+    assert job["output_path"] == ""
+    assert provider_api_harness.list_shots(project_id)[0]["video_path"] == ""
+
+
+def test_video_download_failure_marks_job_failed_without_binding(provider_api_harness):
+    provider_api_harness.download_transport.error = "provider"
+    provider_api_harness.save_settings()
+    project_id = provider_api_harness.create_project_with_keyframe()
+    submitted = response_data(provider_api_harness.submit(project_id))["job"]
+
+    response = provider_api_harness.poll(submitted["id"])
+
+    assert response.status_code == 502
+    assert "download" in response_error(response)["message"].lower()
+    job = response_data(provider_api_harness.get_job(submitted["id"]))["job"]
+    assert job["status"] == "failed"
+    assert job["output_path"] == ""
+    assert provider_api_harness.list_shots(project_id)[0]["video_path"] == ""
 
 
 def test_timeout_contract_marks_job_timeout_without_binding(provider_api_harness):

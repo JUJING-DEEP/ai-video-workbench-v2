@@ -8,11 +8,11 @@ Target release: `v1.1`
 The current Jimeng integration wires the business video-job API to the signed
 Jimeng REST submit and poll clients. It validates the local provider lifecycle
 for video jobs, including provider settings, job submission, polling, remote
-`video_url` retrieval, remote asset creation, shot binding, and render-plan
-readiness.
+`video_url` retrieval, video download, FFmpeg normalization, local asset
+creation, shot binding, and render-plan readiness.
 
-It does not download generated video files to local storage in this slice. A
-later FFmpeg/rendering slice owns local media download and normalization.
+It does not add automatic polling or final render stitching in this slice. The
+UI or a later orchestration layer still owns repeated polling.
 
 ## v1.1 Submit Integration Boundary
 
@@ -29,10 +29,11 @@ The business provider now uses the signed REST client path by default. Tests
 inject deterministic clients or transports so contract and CI coverage remain
 mocked by default.
 
-## v1.1 Poll And Retrieve Boundary
+## v1.1 Poll, Download, And Normalize Boundary
 
 The second production integration slice adds a signed Jimeng REST poll client
-behind an injectable HTTP transport. This client can:
+behind an injectable HTTP transport. The current provider integration also adds
+download and normalization transports. Together they can:
 
 - Build the official `CVSync2AsyncGetResult` request.
 - Sign the poll request with the reusable Volcengine V4 signer.
@@ -41,10 +42,15 @@ behind an injectable HTTP transport. This client can:
 - Map completed responses to a validated `video_url`.
 - Reject failed, expired, missing, malformed, timed out, or unsigned poll
   states with stable provider errors.
+- Download the completed MP4 through an injectable HTTP download transport.
+- Probe the downloaded file duration through an injectable FFmpeg transport.
+- Trim videos longer than the target shot duration and verify the trimmed
+  duration before local completion.
 
-This slice retrieves the remote `video_url` and binds that URL to the shot video
-path through the existing business API. It does not download the video, write
-local media files, add a poll loop, or change the public business API.
+This slice retrieves the remote `video_url`, downloads and normalizes the file
+under the project `assets/videos` directory, and binds that local file path to
+the shot video path through the existing business API. It does not add a poll
+loop, UI changes, or final FFmpeg render stitching.
 
 ## Mock Provider And Real Provider Boundary
 
@@ -55,7 +61,8 @@ The mock provider is responsible for deterministic local behavior:
 - Return stable job states for tests.
 - Simulate provider errors and timeouts.
 - Simulate completed remote `video_url` results.
-- Bind completed remote URLs to the asset library and shot video path.
+- Simulate download, probe, and trim behavior through test transports.
+- Bind completed local video paths to the asset library and shot video path.
 
 Real provider work uses the existing `jimeng` provider identity and lifecycle.
 It must not add a new provider, new API, new database table, or new frontend
@@ -103,8 +110,8 @@ Expected local result:
 
 - Provider `processing` maps to local `processing`.
 - Provider `failed` maps to local `failed`.
-- Provider `completed` proceeds to remote `video_url` binding before local
-  completion.
+- Provider `completed` proceeds to download, duration validation, optional trim,
+  and local binding before local completion.
 - Provider timeout maps to local `timeout`.
 - Provider error maps to local `failed`.
 
@@ -117,20 +124,34 @@ Expected local behavior:
 
 - A valid HTTP(S) `video_url` is required before the local job becomes
   `completed`.
-- The remote `video_url` is recorded as a video asset with `source: "jimeng"`.
 - Invalid or missing result URLs must not create completed jobs or bind partial
   outputs.
-- Local file download is out of scope for this slice.
+
+### Download And Normalize
+
+Download and normalize turns the completed remote `video_url` into a local video
+asset.
+
+Expected local behavior:
+
+- Download the remote MP4 to the project `assets/videos` directory.
+- Probe the downloaded file with `ffprobe`.
+- If actual duration is longer than the target shot duration, trim with
+  `ffmpeg`.
+- Probe again after trimming and fail the job if the output still exceeds the
+  target duration tolerance.
+- Failed downloads, probe failures, trim failures, or invalid trim results must
+  not create completed jobs or bind partial outputs.
 
 ### Bind
 
-Bind happens only after `video_url` validation and remote asset creation
+Bind happens only after download, duration validation, and local asset creation
 succeed.
 
 Expected local behavior:
 
 - Create a `video` asset with `source: "jimeng"`.
-- Bind the remote `video_url` asset path to the shot video path.
+- Bind the local video asset path to the shot video path.
 - Update the job with `status: "completed"`, `result_url`, and `output_path`.
 - Keep render-plan generation based on the bound shot video path.
 
@@ -211,7 +232,7 @@ Completed job response:
       "status": "completed",
       "submit_id": "provider-submit-id",
       "result_url": "https://provider.example/result.mp4",
-      "output_path": "https://provider.example/result.mp4",
+      "output_path": "video_projects/my-project/assets/videos/jimeng-rest-job-501.mp4",
       "error_message": ""
     }
   }
@@ -237,9 +258,9 @@ Error response:
 | `pending` | Local job exists but is not submitted. | No | No |
 | `submitted` | Provider accepted the job and returned a submit id. | Yes | No |
 | `processing` | Provider reports that generation is still running. | Yes | No |
-| `completed` | Remote `video_url` retrieval, asset creation, and shot binding succeeded. | No | Yes |
+| `completed` | Remote `video_url` retrieval, download, normalization, asset creation, and shot binding succeeded. | No | Yes |
 | `failed` | Provider or local lifecycle failed. | No | No |
-| `timeout` | Submit, poll, or total job timeout occurred. | No | No |
+| `timeout` | Submit, poll, total job, or download timeout occurred. | No | No |
 
 Unknown remote states must not be treated as completed. They should either map
 to `processing` within a bounded timeout or fail with a clear local error.
@@ -257,6 +278,9 @@ Provider errors must produce stable local behavior:
 - Provider validation, quota, auth, or remote failure: mark job `failed`.
 - Provider timeout: mark job `timeout`.
 - Missing or invalid completed `video_url`: mark job `failed`.
+- Download failure: mark job `failed` or `timeout`, depending on failure type.
+- Probe or trim failure: mark job `failed`.
+- Trimmed output longer than the target shot duration: mark job `failed`.
 
 Failed, timed-out, or rejected jobs must not bind a video path to the shot.
 
@@ -267,6 +291,7 @@ The provider lifecycle has separate timeout categories:
 - Submit timeout: provider did not accept the job in time.
 - Poll timeout: one provider status request timed out.
 - Total job timeout: job stayed non-terminal longer than the configured limit.
+- Download timeout: completed result could not be downloaded in time.
 
 Timeout behavior:
 
@@ -300,7 +325,7 @@ Real-provider tests must be:
 - safe against repeated paid submissions caused by retry loops
 
 Automatic retries must not resubmit paid generation jobs by default. Safe retry
-behavior may be considered only for idempotent polling.
+behavior may be considered only for idempotent polling or download failures.
 
 ## Real Integration Prerequisites
 
@@ -310,8 +335,8 @@ Before connecting the real Jimeng API, the project must confirm:
 - Official endpoint, region, model name, and request schema are verified.
 - Authentication and signing are implemented from official documentation.
 - Submit, poll, completed, failed, and timeout responses are observed.
-- One short controlled job can be submitted, polled, retrieved as a remote
-  `video_url`, bound, and exported into a render plan.
+- One short controlled job can be submitted, polled, downloaded, normalized,
+  bound, and exported into a render plan.
 - Credential values do not appear in API responses, frontend state, logs, or
   test output.
 - Cost, quota, rate limits, and failure modes are documented.

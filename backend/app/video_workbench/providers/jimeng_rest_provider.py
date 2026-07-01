@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from urllib import error, request
 from urllib.parse import urlencode
 from urllib.parse import urlparse
@@ -75,6 +77,91 @@ class VolcEngineTransport(JimengRestSubmitTransport, JimengRestPollTransport):
             return json.loads(payload)
         except json.JSONDecodeError as exc:
             raise VideoProviderError("Invalid Jimeng REST response: malformed JSON.") from exc
+
+
+class JimengVideoDownloadTransport:
+    def download(self, video_url: str, timeout_seconds: int) -> bytes:
+        raise NotImplementedError("Jimeng video download transport is not configured.")
+
+
+class HttpVideoDownloadTransport(JimengVideoDownloadTransport):
+    def download(self, video_url: str, timeout_seconds: int) -> bytes:
+        http_request = request.Request(video_url, method="GET")
+        try:
+            with request.urlopen(http_request, timeout=timeout_seconds) as response:
+                payload = response.read()
+        except error.HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            raise VideoProviderError(f"Jimeng video download failed: {exc.code} {message}") from exc
+        except TimeoutError:
+            raise
+        except error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise TimeoutError(str(exc)) from exc
+            raise VideoProviderError(f"Jimeng video download failed: {exc}") from exc
+
+        if not payload:
+            raise VideoProviderError("Jimeng video download returned empty body.")
+        return payload
+
+
+class JimengVideoNormalizeTransport:
+    def probe_duration(self, path: Path) -> float:
+        raise NotImplementedError("Jimeng video normalize transport is not configured.")
+
+    def trim(self, input_path: Path, output_path: Path, target_duration_seconds: float) -> None:
+        raise NotImplementedError("Jimeng video normalize transport is not configured.")
+
+
+class FfmpegVideoNormalizeTransport(JimengVideoNormalizeTransport):
+    def probe_duration(self, path: Path) -> float:
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "json",
+                    path.as_posix(),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = exc.stderr.strip() if exc.stderr else "no stderr"
+            raise VideoProviderError(f"ffprobe failed for {path}: {details}") from exc
+
+        try:
+            payload = json.loads(result.stdout)
+            return float(payload["format"]["duration"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise VideoProviderError(f"ffprobe returned invalid duration JSON for {path}") from exc
+
+    def trim(self, input_path: Path, output_path: Path, target_duration_seconds: float) -> None:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    input_path.as_posix(),
+                    "-t",
+                    f"{target_duration_seconds:.3f}",
+                    "-c",
+                    "copy",
+                    output_path.as_posix(),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            details = exc.stderr.strip() if exc.stderr else "no stderr"
+            raise VideoProviderError(f"ffmpeg trim failed for {input_path}: {details}") from exc
 
 
 def _setting(settings: dict, key: str, default: str) -> str:
@@ -377,11 +464,15 @@ class JimengRestProvider:
         client: FakeJimengRestClient | None = None,
         submit_client: JimengRestSubmitClient | None = None,
         poll_client: JimengRestPollClient | None = None,
+        download_transport: JimengVideoDownloadTransport | None = None,
+        normalize_transport: JimengVideoNormalizeTransport | None = None,
     ):
         transport = VolcEngineTransport()
         self.client = client
         self.submit_client = submit_client or JimengRestSubmitClient(transport)
         self.poll_client = poll_client or JimengRestPollClient(transport)
+        self.download_transport = download_transport or HttpVideoDownloadTransport()
+        self.normalize_transport = normalize_transport or FfmpegVideoNormalizeTransport()
 
     def submit_video_generation_job(self, job_id: int, shot_data, settings: dict) -> str:
         prompt = str(getattr(shot_data, "i2v_prompt", "") or "").strip()
@@ -404,6 +495,33 @@ class JimengRestProvider:
             return validate_video_url(result.result_url)
         return self.poll_client.retrieve_video_url(task_id, settings)
 
+    def download_and_normalize_video(
+        self,
+        video_url: str,
+        output_path: Path,
+        target_duration_seconds: float,
+        settings: dict,
+    ) -> str:
+        timeout_seconds = int(settings.get("download_timeout_seconds") or 60)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            video_bytes = self.download_transport.download(validate_video_url(video_url), timeout_seconds)
+        except TimeoutError as exc:
+            raise VideoProviderTimeoutError("Jimeng video download timeout.") from exc
+
+        output_path.write_bytes(video_bytes)
+        actual_duration = self.normalize_transport.probe_duration(output_path)
+        tolerance_seconds = 0.1
+        if actual_duration > target_duration_seconds + tolerance_seconds:
+            trimmed_path = output_path.with_name(f"{output_path.stem}.trimmed{output_path.suffix}")
+            self.normalize_transport.trim(output_path, trimmed_path, target_duration_seconds)
+            trimmed_path.replace(output_path)
+            actual_duration = self.normalize_transport.probe_duration(output_path)
+            if actual_duration > target_duration_seconds + tolerance_seconds:
+                raise VideoProviderError("Jimeng normalized video duration exceeds target duration.")
+        return output_path.as_posix()
+
     def submit_job(self, keyframe_path: str, settings: dict) -> str:
         if self.client is None:
             return self.submit_client.submit_job(keyframe_path, settings)
@@ -415,6 +533,8 @@ class JimengRestProvider:
         return self.client.get_result(submit_id, settings)
 
     def download_video(self, result_url: str, settings: dict) -> bytes:
-        if self.client is None:
-            raise VideoProviderError("Jimeng REST provider does not download videos in this phase.")
-        return self.client.download_video(result_url, settings)
+        timeout_seconds = int(settings.get("download_timeout_seconds") or 60)
+        try:
+            return self.download_transport.download(validate_video_url(result_url), timeout_seconds)
+        except TimeoutError as exc:
+            raise VideoProviderTimeoutError("Jimeng video download timeout.") from exc
