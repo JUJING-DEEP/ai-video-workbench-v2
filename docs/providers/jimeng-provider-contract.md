@@ -29,6 +29,24 @@ Workbench workflow continues to use deterministic fake clients until a later
 Provider Integration PR explicitly wires the signed submit, poll, and download
 lifecycles together.
 
+## v1.1 Poll And Retrieve Boundary
+
+The second production integration slice adds a signed Jimeng REST poll client
+behind an injectable HTTP transport. This client can:
+
+- Build the official `CVSync2AsyncGetResult` request.
+- Sign the poll request with the reusable Volcengine V4 signer.
+- Send the signed request through a caller-provided transport.
+- Map remote processing states to local `processing`.
+- Map completed responses to a validated `video_url`.
+- Reject failed, expired, missing, malformed, timed out, or unsigned poll
+  states with stable provider errors.
+
+This slice only retrieves the remote `video_url` contract. It does not download
+the video, write files, bind assets, update shot paths, add a poll loop, or
+change the public business API. Local shot binding remains part of the later
+download and provider integration work.
+
 ## Mock Provider And Real Provider Boundary
 
 The mock provider is responsible for deterministic local behavior:
