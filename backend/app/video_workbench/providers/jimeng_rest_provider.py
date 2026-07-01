@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from urllib import error, request
+from urllib.parse import urlencode
 from urllib.parse import urlparse
 
 from ..video_provider import VideoProviderError, VideoProviderTimeoutError
@@ -44,6 +46,35 @@ class JimengRestSubmitTransport:
 class JimengRestPollTransport:
     def post_json(self, request: JimengRestRequest, body_json: str, timeout_seconds: int) -> dict:
         raise NotImplementedError("Jimeng REST poll transport is not configured.")
+
+
+class VolcEngineTransport(JimengRestSubmitTransport, JimengRestPollTransport):
+    def post_json(self, rest_request: JimengRestRequest, body_json: str, timeout_seconds: int) -> dict:
+        url = f"{rest_request.endpoint}?{urlencode(rest_request.query)}"
+        http_request = request.Request(
+            url=url,
+            data=body_json.encode("utf-8"),
+            headers=rest_request.headers,
+            method=rest_request.method,
+        )
+
+        try:
+            with request.urlopen(http_request, timeout=timeout_seconds) as response:
+                payload = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            raise VideoProviderError(f"Jimeng REST request failed: {exc.code} {message}") from exc
+        except TimeoutError:
+            raise
+        except error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise TimeoutError(str(exc)) from exc
+            raise VideoProviderError(f"Jimeng REST request failed: {exc}") from exc
+
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise VideoProviderError("Invalid Jimeng REST response: malformed JSON.") from exc
 
 
 def _setting(settings: dict, key: str, default: str) -> str:
@@ -341,14 +372,49 @@ class FakeJimengRestClient:
 
 
 class JimengRestProvider:
-    def __init__(self, client: FakeJimengRestClient | None = None):
-        self.client = client or FakeJimengRestClient()
+    def __init__(
+        self,
+        client: FakeJimengRestClient | None = None,
+        submit_client: JimengRestSubmitClient | None = None,
+        poll_client: JimengRestPollClient | None = None,
+    ):
+        transport = VolcEngineTransport()
+        self.client = client
+        self.submit_client = submit_client or JimengRestSubmitClient(transport)
+        self.poll_client = poll_client or JimengRestPollClient(transport)
+
+    def submit_video_generation_job(self, job_id: int, shot_data, settings: dict) -> str:
+        prompt = str(getattr(shot_data, "i2v_prompt", "") or "").strip()
+        request_settings = {**settings, "prompt": prompt}
+        keyframe_path = str(getattr(shot_data, "keyframe_path", "") or "").strip()
+        if self.client is not None:
+            return self.client.submit_job(keyframe_path, request_settings)
+        return self.submit_client.submit_job(keyframe_path, request_settings)
+
+    def poll_video_generation_job(self, task_id: str, settings: dict) -> JimengJobResult:
+        if self.client is not None:
+            return self.client.get_result(task_id, settings)
+        return self.poll_client.poll_job_status(task_id, settings)
+
+    def retrieve_video_url(self, task_id: str, settings: dict) -> str:
+        if self.client is not None:
+            result = self.client.get_result(task_id, settings)
+            if result.status != "completed":
+                raise VideoProviderError("Jimeng task is not completed; video_url is not available.")
+            return validate_video_url(result.result_url)
+        return self.poll_client.retrieve_video_url(task_id, settings)
 
     def submit_job(self, keyframe_path: str, settings: dict) -> str:
+        if self.client is None:
+            return self.submit_client.submit_job(keyframe_path, settings)
         return self.client.submit_job(keyframe_path, settings)
 
     def get_result(self, submit_id: str, settings: dict) -> JimengJobResult:
+        if self.client is None:
+            return self.poll_client.poll_job_status(submit_id, settings)
         return self.client.get_result(submit_id, settings)
 
     def download_video(self, result_url: str, settings: dict) -> bytes:
+        if self.client is None:
+            raise VideoProviderError("Jimeng REST provider does not download videos in this phase.")
         return self.client.download_video(result_url, settings)

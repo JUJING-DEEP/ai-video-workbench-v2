@@ -27,7 +27,9 @@ STORYBOARD_TEXT = (
     "第 1 张图片 ▏时间：0:00 — 0:02 ▏模式：B（全新构图）\n"
     "台词：你好 / Hello\n"
     "--- 提示词 ---\n"
-    "Scene: Provider contract test"
+    "Scene: Provider contract test\n"
+    "--- 图生视频提示词 (I2V) ---\n"
+    "Camera slowly pushes in for provider contract test."
 )
 
 
@@ -53,18 +55,16 @@ class DeterministicJimengRestClient:
         statuses=None,
         submit_error=None,
         poll_error=None,
-        download_error=None,
         result_url="https://jimeng.example/results/contract-job.mp4",
     ):
         self.statuses = list(statuses or ["completed"])
         self.submit_error = submit_error
         self.poll_error = poll_error
-        self.download_error = download_error
         self.result_url = result_url
         self.calls = []
 
     def submit_job(self, keyframe_path, settings):
-        self.calls.append(("submit", keyframe_path, settings.get("model", "")))
+        self.calls.append(("submit", keyframe_path, settings.get("model", ""), settings.get("prompt", "")))
         if self.submit_error == "timeout":
             raise VideoProviderTimeoutError("Jimeng provider request timeout.")
         if self.submit_error == "provider":
@@ -86,21 +86,6 @@ class DeterministicJimengRestClient:
         if status == "invalid":
             return JimengJobResult(status="invalid-provider-status", result_url=self.result_url)
         return JimengJobResult(status="completed", result_url=self.result_url)
-
-    def download_video(self, result_url, settings):
-        self.calls.append(("download", result_url, settings.get("model", "")))
-        if self.download_error == "timeout":
-            raise VideoProviderTimeoutError("Jimeng download timeout.")
-        if self.download_error == "provider":
-            raise VideoProviderError("Jimeng download error.")
-        if self.download_error == "empty-body":
-            return b""
-        if self.download_error == "truncated-download":
-            return b"bad"
-        if self.download_error == "invalid-media":
-            return b"not-a-valid-provider-video"
-        return f"contract-video downloaded from {result_url}".encode("utf-8")
-
 
 class MalformedJimengRestClient(DeterministicJimengRestClient):
     def __init__(self, payload_kind):

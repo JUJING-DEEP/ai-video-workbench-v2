@@ -6,12 +6,18 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from app.video_workbench.api import get_nano_banana_client, get_repository, router
+from app.video_workbench.api import (
+    get_jimeng_rest_provider,
+    get_nano_banana_client,
+    get_repository,
+    router,
+)
 from app.video_workbench.nano_banana import (
     NanoBananaInvalidKeyError,
     NanoBananaProviderError,
     NanoBananaTimeoutError,
 )
+from app.video_workbench.providers.jimeng_rest_provider import FakeJimengRestClient, JimengRestProvider
 from app.video_workbench.repository import VideoWorkbenchRepository
 
 
@@ -33,6 +39,9 @@ def client(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_repository] = lambda: repository
+    app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(
+        FakeJimengRestClient()
+    )
     return TestClient(app)
 
 
@@ -1651,10 +1660,12 @@ def test_poll_video_job_completed_creates_asset(client):
     assert response.status_code == 200
     job = response_data(response)["job"]
     assert job["status"] == "completed"
-    assert job["output_path"].startswith(f"data/uploads/{project_id}/generated/videos/")
+    assert job["output_path"] == job["result_url"]
+    assert job["result_url"].startswith("https://jimeng.example/results/")
     assets = client.get(f"/api/video-workbench/projects/{project_id}/assets")["assets"]
     assert assets[0]["asset_type"] == "video"
     assert assets[0]["source"] == "jimeng"
+    assert assets[0]["path"] == job["result_url"]
 
 
 def test_poll_video_job_completed_binds_video(client):

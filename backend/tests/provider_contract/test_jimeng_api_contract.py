@@ -1,11 +1,4 @@
-from pathlib import Path
-
-from app.video_workbench.api import get_jimeng_rest_provider
-from app.video_workbench.providers.jimeng_rest_provider import JimengRestProvider
-
 from .fixtures import (
-    DeterministicJimengRestClient,
-    ProviderApiHarness,
     response_data,
     response_error,
 )
@@ -23,6 +16,9 @@ def test_submit_job_contract_creates_submitted_job(provider_api_harness):
     assert job["status"] == "submitted"
     assert job["submit_id"] == "contract-submit-001"
     assert provider_api_harness.provider_client.calls[0][0] == "submit"
+    assert provider_api_harness.provider_client.calls[0][3] == (
+        "Camera slowly pushes in for provider contract test."
+    )
 
 
 def test_poll_job_contract_keeps_processing_state(provider_api_harness):
@@ -39,7 +35,7 @@ def test_poll_job_contract_keeps_processing_state(provider_api_harness):
     assert polled_job["output_path"] == ""
 
 
-def test_download_and_bind_contract_creates_asset_and_updates_shot(provider_api_harness):
+def test_retrieve_and_bind_contract_creates_remote_asset_and_updates_shot(provider_api_harness):
     provider_api_harness.save_settings()
     project_id = provider_api_harness.create_project_with_keyframe()
     submitted = response_data(provider_api_harness.submit(project_id))["job"]
@@ -50,14 +46,14 @@ def test_download_and_bind_contract_creates_asset_and_updates_shot(provider_api_
     completed = response_data(response)["job"]
     assert completed["status"] == "completed"
     assert completed["result_url"] == "https://jimeng.example/results/contract-job.mp4"
-    assert completed["output_path"].startswith(f"data/uploads/{project_id}/generated/videos/")
-    assert Path(completed["output_path"]).read_bytes().startswith(b"contract-video")
-    assert ("download", completed["result_url"], "jimeng-v3") in provider_api_harness.provider_client.calls
+    assert completed["output_path"] == completed["result_url"]
+    assert not any(call[0] == "download" for call in provider_api_harness.provider_client.calls)
 
     assets = provider_api_harness.list_assets(project_id)
     shots = provider_api_harness.list_shots(project_id)
     assert assets[0]["asset_type"] == "video"
     assert assets[0]["source"] == "jimeng"
+    assert assets[0]["path"] == completed["result_url"]
     assert shots[0]["video_path"] == completed["output_path"]
 
 
@@ -171,46 +167,3 @@ def test_invalid_response_contract_marks_job_failed(provider_api_harness):
     assert job["status"] == "failed"
     assert job["output_path"] == ""
     assert provider_api_harness.list_shots(project_id)[0]["video_path"] == ""
-
-
-def test_download_failure_contract_marks_job_failed(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    failing_client = DeterministicJimengRestClient(download_error="provider")
-    harness = ProviderApiHarness.__new__(ProviderApiHarness)
-
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from httpx import Response
-
-    from app.video_workbench.api import get_repository, router
-    from app.video_workbench.repository import VideoWorkbenchRepository
-
-    monkeypatch.setattr(
-        Response,
-        "__getitem__",
-        lambda response, key: response_data(response)[key],
-        raising=False,
-    )
-    repository = VideoWorkbenchRepository(
-        db_path=tmp_path / "video-workbench.db",
-        projects_root=tmp_path / "projects",
-    )
-    repository.init_schema()
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_repository] = lambda: repository
-    app.dependency_overrides[get_jimeng_rest_provider] = lambda: JimengRestProvider(failing_client)
-    harness.client = TestClient(app, raise_server_exceptions=False)
-    harness.provider_client = failing_client
-    harness.save_settings()
-    project_id = harness.create_project_with_keyframe()
-    submitted = response_data(harness.submit(project_id))["job"]
-
-    response = harness.poll(submitted["id"])
-
-    assert response.status_code == 502
-    assert "download error" in response_error(response)["message"].lower()
-    job = response_data(harness.get_job(submitted["id"]))["job"]
-    assert job["status"] == "failed"
-    assert job["output_path"] == ""
-    assert harness.list_shots(project_id)[0]["video_path"] == ""

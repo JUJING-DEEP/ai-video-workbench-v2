@@ -72,7 +72,7 @@ def test_empty_provider_response_marks_job_failed(tmp_path, monkeypatch):
     assert_job_not_bound(harness, project_id, submitted["id"], "failed")
 
 
-def test_partial_provider_response_missing_download_url_marks_job_failed(tmp_path, monkeypatch):
+def test_partial_provider_response_missing_video_url_marks_job_failed(tmp_path, monkeypatch):
     harness, _ = make_harness(tmp_path, monkeypatch, MalformedJimengRestClient("partial-response"))
     project_id, submitted = create_submitted_job(harness)
 
@@ -95,7 +95,7 @@ def test_missing_submit_id_guard_rejects_malformed_job_payload(provider_api_harn
     assert "submit_id" in response_error(response)["message"]
 
 
-def test_missing_download_url_marks_job_failed(provider_api_harness):
+def test_missing_video_url_marks_job_failed(provider_api_harness):
     provider_api_harness.provider_client.result_url = ""
     provider_api_harness.save_settings()
     project_id = provider_api_harness.create_project_with_keyframe()
@@ -106,51 +106,6 @@ def test_missing_download_url_marks_job_failed(provider_api_harness):
     assert response.status_code == 502
     assert "result_url" in response_error(response)["message"].lower()
     assert_job_not_bound(provider_api_harness, project_id, submitted["id"], "failed")
-
-
-def test_empty_download_marks_job_failed(tmp_path, monkeypatch):
-    harness, _ = make_harness(
-        tmp_path,
-        monkeypatch,
-        DeterministicJimengRestClient(download_error="empty-body"),
-    )
-    project_id, submitted = create_submitted_job(harness)
-
-    response = harness.poll(submitted["id"])
-
-    assert response.status_code == 502
-    assert "empty" in response_error(response)["message"].lower()
-    assert_job_not_bound(harness, project_id, submitted["id"], "failed")
-
-
-def test_corrupted_download_marks_job_failed(tmp_path, monkeypatch):
-    harness, _ = make_harness(
-        tmp_path,
-        monkeypatch,
-        DeterministicJimengRestClient(download_error="truncated-download"),
-    )
-    project_id, submitted = create_submitted_job(harness)
-
-    response = harness.poll(submitted["id"])
-
-    assert response.status_code == 502
-    assert "invalid" in response_error(response)["message"].lower()
-    assert_job_not_bound(harness, project_id, submitted["id"], "failed")
-
-
-def test_invalid_media_download_marks_job_failed(tmp_path, monkeypatch):
-    harness, _ = make_harness(
-        tmp_path,
-        monkeypatch,
-        DeterministicJimengRestClient(download_error="invalid-media"),
-    )
-    project_id, submitted = create_submitted_job(harness)
-
-    response = harness.poll(submitted["id"])
-
-    assert response.status_code == 502
-    assert "invalid" in response_error(response)["message"].lower()
-    assert_job_not_bound(harness, project_id, submitted["id"], "failed")
 
 
 def test_unexpected_local_job_status_rejected(tmp_path, monkeypatch):
